@@ -1,0 +1,6 @@
+@CentralAuth.Api_HostAddress = http://localhost:5089
+
+GET {{CentralAuth.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

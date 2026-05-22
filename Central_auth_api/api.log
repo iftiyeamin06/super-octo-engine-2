@@ -1,0 +1,193 @@
+Using launch settings from E:\Wold\super-octo-engine-2\Central_auth_api\Properties\launchSettings.json...
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://localhost:5050
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Development
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: E:\Wold\super-octo-engine-2\Central_auth_api
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (105ms) [Parameters=[@__normalized_0='?' (Size = 255)], CommandType='Text', CommandTimeout='30']
+      SELECT `s`.`Id`, `s`.`CreatedAt`, `s`.`CreatedBy`, `s`.`DepartmentId`, `s`.`DesignationId`, `s`.`Email`, `s`.`FailedLoginAttempts`, `s`.`FirstName`, `s`.`IsActive`, `s`.`IsLocked`, `s`.`LastLoginAt`, `s`.`LastName`, `s`.`LockoutEnd`, `s`.`NormalizedEmail`, `s`.`NormalizedUserName`, `s`.`PasswordHash`, `s`.`PhoneNumber`, `s`.`ProfilePhotoStorageKey`, `s`.`TenantId`, `s`.`TwoFactorEnabled`, `s`.`TwoFactorMethod`, `s`.`UpdatedAt`, `s`.`UpdatedBy`, `s`.`UserName`, `s`.`Id0`, `s`.`Code`, `s`.`ContactEmail`, `s`.`CreatedAt0`, `s`.`CreatedBy0`, `s`.`Description`, `s`.`IsActive0`, `s`.`LogoUrl`, `s`.`Name`, `s`.`SubscriptionExpiresAt`, `s`.`SubscriptionPlan`, `s`.`UpdatedAt0`, `s`.`UpdatedBy0`, `s0`.`Id`, `s0`.`AppUserId`, `s0`.`CreatedAt`, `s0`.`CreatedBy`, `s0`.`IsActive`, `s0`.`RoleId`, `s0`.`UpdatedAt`, `s0`.`UpdatedBy`, `s0`.`Id0`, `s0`.`CreatedAt0`, `s0`.`CreatedBy0`, `s0`.`Description`, `s0`.`IsActive0`, `s0`.`IsSystem`, `s0`.`Name`, `s0`.`TenantId`, `s0`.`UpdatedAt0`, `s0`.`UpdatedBy0`
+      FROM (
+          SELECT `a`.`Id`, `a`.`CreatedAt`, `a`.`CreatedBy`, `a`.`DepartmentId`, `a`.`DesignationId`, `a`.`Email`, `a`.`FailedLoginAttempts`, `a`.`FirstName`, `a`.`IsActive`, `a`.`IsLocked`, `a`.`LastLoginAt`, `a`.`LastName`, `a`.`LockoutEnd`, `a`.`NormalizedEmail`, `a`.`NormalizedUserName`, `a`.`PasswordHash`, `a`.`PhoneNumber`, `a`.`ProfilePhotoStorageKey`, `a`.`TenantId`, `a`.`TwoFactorEnabled`, `a`.`TwoFactorMethod`, `a`.`UpdatedAt`, `a`.`UpdatedBy`, `a`.`UserName`, `a0`.`Id` AS `Id0`, `a0`.`Code`, `a0`.`ContactEmail`, `a0`.`CreatedAt` AS `CreatedAt0`, `a0`.`CreatedBy` AS `CreatedBy0`, `a0`.`Description`, `a0`.`IsActive` AS `IsActive0`, `a0`.`LogoUrl`, `a0`.`Name`, `a0`.`SubscriptionExpiresAt`, `a0`.`SubscriptionPlan`, `a0`.`UpdatedAt` AS `UpdatedAt0`, `a0`.`UpdatedBy` AS `UpdatedBy0`
+          FROM `auth_appusers` AS `a`
+          LEFT JOIN `auth_tenants` AS `a0` ON `a`.`TenantId` = `a0`.`Id`
+          WHERE (`a`.`NormalizedEmail` = @__normalized_0) AND `a`.`IsActive`
+          LIMIT 1
+      ) AS `s`
+      LEFT JOIN (
+          SELECT `a1`.`Id`, `a1`.`AppUserId`, `a1`.`CreatedAt`, `a1`.`CreatedBy`, `a1`.`IsActive`, `a1`.`RoleId`, `a1`.`UpdatedAt`, `a1`.`UpdatedBy`, `a2`.`Id` AS `Id0`, `a2`.`CreatedAt` AS `CreatedAt0`, `a2`.`CreatedBy` AS `CreatedBy0`, `a2`.`Description`, `a2`.`IsActive` AS `IsActive0`, `a2`.`IsSystem`, `a2`.`Name`, `a2`.`TenantId`, `a2`.`UpdatedAt` AS `UpdatedAt0`, `a2`.`UpdatedBy` AS `UpdatedBy0`
+          FROM `auth_userroles` AS `a1`
+          INNER JOIN `auth_roles` AS `a2` ON `a1`.`RoleId` = `a2`.`Id`
+      ) AS `s0` ON `s`.`Id` = `s0`.`AppUserId`
+      ORDER BY `s`.`Id`, `s`.`Id0`, `s0`.`Id`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (60ms) [Parameters=[@p1='?' (DbType = Int64), @p0='?' (DbType = DateTime)], CommandType='Text', CommandTimeout='30']
+      SET AUTOCOMMIT = 1;
+      UPDATE `auth_appusers` SET `LastLoginAt` = @p0
+      WHERE `Id` = @p1;
+      SELECT ROW_COUNT();
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (3ms) [Parameters=[@__p_0='?' (DbType = Int32)], CommandType='Text', CommandTimeout='30']
+      SELECT `a1`.`Id`, `a1`.`ActionType`, `a1`.`EntityName`, `a0`.`Email`, `a1`.`IpAddress`, `a1`.`CreatedAt`
+      FROM (
+          SELECT `a`.`Id`, `a`.`ActionType`, `a`.`AppUserId`, `a`.`CreatedAt`, `a`.`EntityName`, `a`.`IpAddress`
+          FROM `auth_audithistories` AS `a`
+          ORDER BY `a`.`CreatedAt` DESC
+          LIMIT @__p_0
+      ) AS `a1`
+      LEFT JOIN `auth_appusers` AS `a0` ON `a1`.`AppUserId` = `a0`.`Id`
+      ORDER BY `a1`.`CreatedAt` DESC
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (2ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_appusers` AS `a`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_appusers` AS `a`
+      WHERE `a`.`IsActive` AND NOT (`a`.`IsLocked`)
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (0ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_appusers` AS `a`
+      WHERE `a`.`IsLocked`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (4ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_user_login_sessions` AS `a`
+      WHERE `a`.`IsActive` AND (`a`.`ExpiresAtUtc` > UTC_TIMESTAMP(6))
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_roles` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_tenants` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (3ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_services` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_service_api_keys` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (6ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_otp_verifications` AS `a`
+      WHERE (`a`.`IsActive` AND (`a`.`VerifiedAt` IS NULL)) AND (`a`.`ExpiresAt` > UTC_TIMESTAMP(6))
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (8ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_modules` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (3ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_permissions` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[@__p_0='?' (DbType = Int32)], CommandType='Text', CommandTimeout='30']
+      SELECT `a1`.`Id`, `a1`.`ActionType`, `a1`.`EntityName`, `a0`.`Email`, `a1`.`IpAddress`, `a1`.`CreatedAt`
+      FROM (
+          SELECT `a`.`Id`, `a`.`ActionType`, `a`.`AppUserId`, `a`.`CreatedAt`, `a`.`EntityName`, `a`.`IpAddress`
+          FROM `auth_audithistories` AS `a`
+          ORDER BY `a`.`CreatedAt` DESC
+          LIMIT @__p_0
+      ) AS `a1`
+      LEFT JOIN `auth_appusers` AS `a0` ON `a1`.`AppUserId` = `a0`.`Id`
+      ORDER BY `a1`.`CreatedAt` DESC
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (52ms) [Parameters=[@__p_0='?' (DbType = Int32)], CommandType='Text', CommandTimeout='30']
+      SELECT `a1`.`Id`, CONCAT(CONCAT(`a1`.`FirstName`, ' '), `a1`.`LastName`), `a1`.`Email`, (
+          SELECT `a3`.`Name`
+          FROM `auth_userroles` AS `a2`
+          INNER JOIN `auth_roles` AS `a3` ON `a2`.`RoleId` = `a3`.`Id`
+          WHERE (`a1`.`Id` = `a2`.`AppUserId`) AND `a2`.`IsActive`
+          LIMIT 1), `a0`.`Name`, `a1`.`IsActive`, `a1`.`IsLocked`, `a1`.`CreatedAt`
+      FROM (
+          SELECT `a`.`Id`, `a`.`CreatedAt`, `a`.`Email`, `a`.`FirstName`, `a`.`IsActive`, `a`.`IsLocked`, `a`.`LastName`, `a`.`TenantId`
+          FROM `auth_appusers` AS `a`
+          ORDER BY `a`.`CreatedAt` DESC
+          LIMIT @__p_0
+      ) AS `a1`
+      LEFT JOIN `auth_tenants` AS `a0` ON `a1`.`TenantId` = `a0`.`Id`
+      ORDER BY `a1`.`CreatedAt` DESC
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_appusers` AS `a`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_appusers` AS `a`
+      WHERE `a`.`IsActive` AND NOT (`a`.`IsLocked`)
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_appusers` AS `a`
+      WHERE `a`.`IsLocked`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_user_login_sessions` AS `a`
+      WHERE `a`.`IsActive` AND (`a`.`ExpiresAtUtc` > UTC_TIMESTAMP(6))
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (0ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_roles` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (0ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_tenants` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_services` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_service_api_keys` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (0ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_otp_verifications` AS `a`
+      WHERE (`a`.`IsActive` AND (`a`.`VerifiedAt` IS NULL)) AND (`a`.`ExpiresAt` > UTC_TIMESTAMP(6))
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_modules` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (0ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT COUNT(*)
+      FROM `auth_permissions` AS `a`
+      WHERE `a`.`IsActive`
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (6ms) [Parameters=[@__p_0='?' (DbType = Int32)], CommandType='Text', CommandTimeout='30']
+      SELECT `a1`.`Id`, CONCAT(CONCAT(`a1`.`FirstName`, ' '), `a1`.`LastName`), `a1`.`Email`, (
+          SELECT `a3`.`Name`
+          FROM `auth_userroles` AS `a2`
+          INNER JOIN `auth_roles` AS `a3` ON `a2`.`RoleId` = `a3`.`Id`
+          WHERE (`a1`.`Id` = `a2`.`AppUserId`) AND `a2`.`IsActive`
+          LIMIT 1), `a0`.`Name`, `a1`.`IsActive`, `a1`.`IsLocked`, `a1`.`CreatedAt`
+      FROM (
+          SELECT `a`.`Id`, `a`.`CreatedAt`, `a`.`Email`, `a`.`FirstName`, `a`.`IsActive`, `a`.`IsLocked`, `a`.`LastName`, `a`.`TenantId`
+          FROM `auth_appusers` AS `a`
+          ORDER BY `a`.`CreatedAt` DESC
+          LIMIT @__p_0
+      ) AS `a1`
+      LEFT JOIN `auth_tenants` AS `a0` ON `a1`.`TenantId` = `a0`.`Id`
+      ORDER BY `a1`.`CreatedAt` DESC
