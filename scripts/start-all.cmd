@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 :: CentralAuth — Start frontend + backend together
 :: ============================================================
 
-set ROOT=E:\Wold\super-octo-engine-2
+set ROOT=%~dp0..
 set API=%ROOT%\Central_auth_api
 set UI=%ROOT%\Central_auth
 

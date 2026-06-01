@@ -2,7 +2,7 @@
 # CentralAuth — Start frontend + backend together
 # ============================================================
 
-$root = "E:\Wold\super-octo-engine-2"
+$root = Resolve-Path "$PSScriptRoot\.."
 $api  = "$root\Central_auth_api"
 $ui   = "$root\Central_auth"
 
@@ -13,13 +13,14 @@ function Write-Status($msg, $color = "Cyan") {
 # ── Kill existing titled windows ───────────────────────────────
 Write-Status "Stopping any running CentralAuth instances..." "Yellow"
 @("CentralAuth API :5050", "CentralAuth UI :5173") | ForEach-Object {
-    $proc = Get-Process | Where-Object { $_.MainWindowTitle -eq $_ } -ErrorAction SilentlyContinue
-    if ($proc) { $proc | Stop-Process -Force -ErrorAction SilentlyContinue }
+    $title = $_
+    $proc = Get-Process | Where-Object { $_.MainWindowTitle -eq $title } -ErrorAction SilentlyContinue
+    if ($proc) { Write-Status "Closing window: $title"; $proc | Stop-Process -Force -ErrorAction SilentlyContinue }
 }
 
 # ── Kill leftover dotnet / node processes by CommandLine ───────
-Get-WmiObject Win32_Process |
-    Where-Object { $_.Name -match "dotnet" -and $_.CommandLine -match "Central_auth_api" } |
+Get-CimInstance Win32_Process |
+    Where-Object { ($_.Name -match "dotnet" -and $_.CommandLine -match "Central_auth_api") -or ($_.Name -match "CentralAuth.Api") } |
     ForEach-Object {
         Write-Status "  Killing old API  (PID $($_.ProcessId))" "DarkYellow"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
