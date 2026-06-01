@@ -1,10 +1,25 @@
-const BASE = "http://localhost:5050/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+
+function getSessionToken(): string | null {
+  try {
+    const raw = localStorage.getItem("central_auth_session");
+    if (!raw) return null;
+    return JSON.parse(raw)?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function handleUnauthorized() {
+  localStorage.removeItem("central_auth_session");
+  if (window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
+}
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("central_auth_session")
-    ? JSON.parse(localStorage.getItem("central_auth_session")!).token
-    : null;
-  const res = await fetch(`${BASE}${path}`, {
+  const token = getSessionToken();
+  const res = await fetch(`${API_BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -12,8 +27,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (res.status === 401) {
-    localStorage.removeItem("central_auth_session");
-    window.location.href = "/login";
+    handleUnauthorized();
     throw new Error("Unauthorized");
   }
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);

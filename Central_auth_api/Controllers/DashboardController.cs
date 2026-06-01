@@ -12,30 +12,20 @@ public class DashboardController(CentralAuthDbContext db) : ControllerBase
     [HttpGet("stats")]
     public async Task<DashboardStatsDto> GetStats()
     {
-        // Single round-trip: all 11 counts in one SQL query
         var now = DateTime.UtcNow;
-        var result = await db.Database.SqlQueryRaw<DashboardStatsRaw>(@"
-            SELECT
-              (SELECT COUNT(*) FROM auth_appusers)                                                             AS TotalUsers,
-              (SELECT COUNT(*) FROM auth_appusers      WHERE IsActive = 1 AND IsLocked = 0)                   AS ActiveUsers,
-              (SELECT COUNT(*) FROM auth_appusers      WHERE IsActive = 1 AND IsLocked = 1)                   AS LockedUsers,
-              (SELECT COUNT(*) FROM auth_userloginsessions WHERE IsActive = 1 AND ExpiresAtUtc > {0})         AS ActiveSessions,
-              (SELECT COUNT(*) FROM auth_roles          WHERE IsActive = 1)                                   AS TotalRoles,
-              (SELECT COUNT(*) FROM auth_tenants        WHERE IsActive = 1)                                   AS TotalTenants,
-              (SELECT COUNT(*) FROM auth_services       WHERE IsActive = 1)                                   AS TotalServices,
-              (SELECT COUNT(*) FROM auth_serviceapikeys WHERE IsActive = 1)                                   AS TotalApiKeys,
-              (SELECT COUNT(*) FROM auth_otpverifications WHERE IsActive = 1 AND VerifiedAt IS NULL AND ExpiresAt > {0}) AS PendingOtps,
-              (SELECT COUNT(*) FROM auth_modules        WHERE IsActive = 1)                                   AS TotalModules,
-              (SELECT COUNT(*) FROM auth_permissions    WHERE IsActive = 1)                                   AS TotalPermissions
-        ", now).FirstOrDefaultAsync();
-
-        return result is null
-            ? new DashboardStatsDto(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-            : new DashboardStatsDto(
-                result.TotalUsers, result.ActiveUsers, result.LockedUsers,
-                result.ActiveSessions, result.TotalRoles, result.TotalTenants,
-                result.TotalServices, result.TotalApiKeys, result.PendingOtps,
-                result.TotalModules, result.TotalPermissions);
+        return new DashboardStatsDto(
+            await db.AppUsers.CountAsync(),
+            await db.AppUsers.CountAsync(u => u.IsActive && !u.IsLocked),
+            await db.AppUsers.CountAsync(u => u.IsActive && u.IsLocked),
+            await db.UserLoginSessions.CountAsync(s => s.IsActive && s.ExpiresAtUtc > now),
+            await db.Roles.CountAsync(r => r.IsActive),
+            await db.Tenants.CountAsync(t => t.IsActive),
+            await db.Services.CountAsync(s => s.IsActive),
+            await db.ServiceApiKeys.CountAsync(k => k.ExpiresAt == null || k.ExpiresAt > now),
+            await db.OtpVerifications.CountAsync(o => o.IsActive && o.VerifiedAt == null && o.ExpiresAt > now),
+            await db.Modules.CountAsync(m => m.IsActive),
+            await db.Permissions.CountAsync(p => p.IsActive)
+        );
     }
 
     [HttpGet("recent-users")]
@@ -69,19 +59,4 @@ public class DashboardController(CentralAuthDbContext db) : ControllerBase
             .ToListAsync();
     }
 
-    // Internal DTO for raw SQL projection
-    private class DashboardStatsRaw
-    {
-        public int TotalUsers      { get; set; }
-        public int ActiveUsers     { get; set; }
-        public int LockedUsers     { get; set; }
-        public int ActiveSessions  { get; set; }
-        public int TotalRoles      { get; set; }
-        public int TotalTenants    { get; set; }
-        public int TotalServices   { get; set; }
-        public int TotalApiKeys    { get; set; }
-        public int PendingOtps     { get; set; }
-        public int TotalModules    { get; set; }
-        public int TotalPermissions{ get; set; }
-    }
 }

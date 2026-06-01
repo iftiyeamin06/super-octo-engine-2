@@ -6,14 +6,19 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ── Database ─────────────────────────────────────────────────────────────────
-var connStr = builder.Configuration.GetConnectionString("CentralAuth")!;
+var connStr = builder.Configuration.GetConnectionString("CentralAuth");
+if (string.IsNullOrWhiteSpace(connStr))
+    throw new InvalidOperationException("Missing connection string 'ConnectionStrings:CentralAuth'. Set it in appsettings.Development.json, user secrets, or environment variables.");
+
 builder.Services.AddDbContext<CentralAuthDbContext>(opt =>
     opt.UseMySql(connStr, ServerVersion.AutoDetect(connStr)));
 
-// ── JWT Authentication ────────────────────────────────────────────────────────
 var jwtCfg = builder.Configuration.GetSection("Jwt");
-var jwtKey = Encoding.UTF8.GetBytes(jwtCfg["Key"]!);
+var jwtKeyValue = jwtCfg["Key"];
+if (string.IsNullOrWhiteSpace(jwtKeyValue))
+    throw new InvalidOperationException("Missing JWT key 'Jwt:Key'. Set it in appsettings.Development.json, user secrets, or environment variables.");
+
+var jwtKey = Encoding.UTF8.GetBytes(jwtKeyValue);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
     {
@@ -32,8 +37,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// ── CORS ──────────────────────────────────────────────────────────────────────
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 builder.Services.AddCors(opt =>
     opt.AddPolicy("ReactUI", policy =>
         policy.WithOrigins(allowedOrigins)
@@ -41,7 +45,6 @@ builder.Services.AddCors(opt =>
               .AllowAnyMethod()
               .AllowCredentials()));
 
-// ── Controllers ───────────────────────────────────────────────────────────────
 builder.Services.AddControllers()
     .AddJsonOptions(opt =>
         opt.JsonSerializerOptions.DefaultIgnoreCondition =

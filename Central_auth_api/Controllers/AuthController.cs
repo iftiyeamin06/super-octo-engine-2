@@ -28,7 +28,6 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         if (user.IsLocked)
             return Unauthorized(new { message = "Account is locked. Contact your administrator." });
 
-        // Update last login
         user.LastLoginAt = DateTime.UtcNow;
         user.FailedLoginAttempts = 0;
         await db.SaveChangesAsync();
@@ -47,12 +46,13 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     [HttpPost("logout")]
     public IActionResult Logout() => Ok(new { message = "Logged out." });
 
-    // Dev utility — remove before production
+#if DEBUG
     [HttpPost("set-password")]
     public async Task<IActionResult> SetPassword([FromBody] SetPasswordRequest req)
     {
         var user = await db.AppUsers.FirstOrDefaultAsync(u => u.NormalizedEmail == req.Email.ToUpperInvariant());
         if (user is null) return NotFound();
+
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
@@ -60,6 +60,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     }
 
     public record SetPasswordRequest(string Email, string NewPassword);
+#endif
 
     private string BuildToken(long userId, string email, IEnumerable<string> roles)
     {
