@@ -1,5 +1,8 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace CentralAuth.Api.Models;
 
+[Table("auth_modules")]
 public class Module : BaseEntity
 {
     public string Name { get; set; } = string.Empty;

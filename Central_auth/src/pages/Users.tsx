@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Search, Plus, UserCheck, UserX, Trash2, ChevronLeft, ChevronRight, X, Loader2, Eye, EyeOff } from "lucide-react";
+import { Search, Plus, UserCheck, UserX, Trash2, ChevronLeft, ChevronRight, X, Loader2, Eye, EyeOff, Pencil } from "lucide-react";
 import Badge from "../components/Badge";
 import { TableSkeleton } from "../components/Skeleton";
 import { cn } from "../lib/utils";
@@ -8,6 +8,7 @@ import { api, type UserListItem, type TenantListItem, type RoleListItem, type De
 const emptyForm = {
   firstName: "", lastName: "", email: "", userName: "", password: "",
   phoneNumber: "", tenantId: "", departmentId: "", designationId: "",
+  isActive: true,
   roleIds: [] as number[],
 };
 
@@ -20,6 +21,7 @@ export default function Users() {
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [modal, setModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [showPwd, setShowPwd] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -52,7 +54,29 @@ export default function Users() {
   }, []);
 
   function openCreate() {
+    setEditingUser(null);
     setForm(emptyForm);
+    setFormError(null);
+    setShowPwd(false);
+    setModal(true);
+  }
+
+  function openEdit(user: UserListItem) {
+    const roleIds = roles.filter(r => user.roles.includes(r.name)).map(r => r.id);
+    setEditingUser(user);
+    setForm({
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      userName: user.userName,
+      password: "",
+      phoneNumber: user.phoneNumber ?? "",
+      tenantId: user.tenantId ? String(user.tenantId) : "",
+      departmentId: user.departmentId ? String(user.departmentId) : "",
+      designationId: user.designationId ? String(user.designationId) : "",
+      isActive: user.isActive,
+      roleIds,
+    });
     setFormError(null);
     setShowPwd(false);
     setModal(true);
@@ -61,19 +85,32 @@ export default function Users() {
   async function save() {
     setSaving(true); setFormError(null);
     try {
-      await api.users.create({
-        firstName: form.firstName, lastName: form.lastName,
-        email: form.email, userName: form.userName, password: form.password,
-        phoneNumber: form.phoneNumber || null,
-        tenantId: form.tenantId ? Number(form.tenantId) : null,
-        departmentId: form.departmentId ? Number(form.departmentId) : null,
-        designationId: form.designationId ? Number(form.designationId) : null,
-        roleIds: form.roleIds,
-      });
+      if (editingUser) {
+        await api.users.update(editingUser.id, {
+          firstName: form.firstName,
+          lastName: form.lastName,
+          phoneNumber: form.phoneNumber || null,
+          departmentId: form.departmentId ? Number(form.departmentId) : null,
+          designationId: form.designationId ? Number(form.designationId) : null,
+          isActive: form.isActive,
+          roleIds: form.roleIds,
+        });
+      } else {
+        await api.users.create({
+          firstName: form.firstName, lastName: form.lastName,
+          email: form.email, userName: form.userName, password: form.password,
+          phoneNumber: form.phoneNumber || null,
+          tenantId: form.tenantId ? Number(form.tenantId) : null,
+          departmentId: form.departmentId ? Number(form.departmentId) : null,
+          designationId: form.designationId ? Number(form.designationId) : null,
+          roleIds: form.roleIds,
+        });
+      }
       setModal(false);
+      setEditingUser(null);
       load();
     } catch (e: unknown) {
-      setFormError(e instanceof Error ? e.message : "Failed to create user");
+      setFormError(e instanceof Error ? e.message : editingUser ? "Failed to update user" : "Failed to create user");
     } finally { setSaving(false); }
   }
 
@@ -128,20 +165,20 @@ export default function Users() {
       </div>
 
       {/* Table */}
-      {loading ? <TableSkeleton rows={8} cols={6} /> : (
+      {loading ? <TableSkeleton rows={8} cols={9} /> : (
         <div className="bg-card rounded-xl border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
-                  {["User", "Roles", "Tenant", "Department", "2FA", "Status", "Joined", "Actions"].map(h => (
+                  {["User", "Roles", "Tenant", "Department", "Designation", "2FA", "Status", "Joined", "Actions"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {items.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">No users found</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">No users found</td></tr>
                 ) : items.map((u) => (
                   <tr key={u.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3">
@@ -163,6 +200,7 @@ export default function Users() {
                     </td>
                     <td className="px-4 py-3">{u.tenantName ? <Badge variant="outline">{u.tenantName}</Badge> : <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{u.departmentName ?? "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{u.designationName ?? "—"}</td>
                     <td className="px-4 py-3">
                       <span className={cn("text-xs font-medium", u.twoFactorEnabled ? "text-emerald-600" : "text-muted-foreground")}>
                         {u.twoFactorEnabled ? "✓ On" : "Off"}
@@ -172,6 +210,11 @@ export default function Users() {
                     <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
+                        <button onClick={() => openEdit(u)}
+                          title="Edit"
+                          className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={() => toggleLock(u)}
                           title={u.isLocked ? "Unlock" : "Lock"}
                           className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
@@ -200,13 +243,13 @@ export default function Users() {
         </div>
       )}
 
-      {/* Create User Modal */}
+      {/* User Modal */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-card border rounded-xl w-full max-w-lg shadow-xl my-4">
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h2 className="text-sm font-semibold">Create User</h2>
-              <button onClick={() => setModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+              <h2 className="text-sm font-semibold">{editingUser ? "Edit User" : "Create User"}</h2>
+              <button onClick={() => { setModal(false); setEditingUser(null); }} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
               {formError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{formError}</div>}
@@ -226,10 +269,9 @@ export default function Users() {
                 ))}
               </div>
 
-              {[
+              {!editingUser && [
                 { label: "Email *", key: "email", type: "email", placeholder: "john@example.com" },
                 { label: "Username *", key: "userName", type: "text", placeholder: "john.doe" },
-                { label: "Phone", key: "phoneNumber", type: "tel", placeholder: "+880 1700 000000" },
               ].map(({ label, key, type, placeholder }) => (
                 <div key={key}>
                   <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
@@ -239,6 +281,14 @@ export default function Users() {
                     className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
                 </div>
               ))}
+
+              <div>
+                <label className="block text-xs font-medium text-foreground mb-1">Phone</label>
+                <input type="tel" value={form.phoneNumber}
+                  onChange={(e) => setForm(f => ({ ...f, phoneNumber: e.target.value }))}
+                  placeholder="+880 1700 000000"
+                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -259,7 +309,7 @@ export default function Users() {
                 </div>
               </div>
 
-              <div>
+              {!editingUser && <div>
                 <label className="block text-xs font-medium text-foreground mb-1">Password *</label>
                 <div className="relative">
                   <input type={showPwd ? "text" : "password"} value={form.password}
@@ -271,17 +321,26 @@ export default function Users() {
                     {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
+              </div>}
+
+              {editingUser && (
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input type="checkbox" checked={form.isActive}
+                    onChange={(e) => setForm(f => ({ ...f, isActive: e.target.checked }))}
+                    className="h-4 w-4 rounded border bg-background accent-primary" />
+                  Is Active
+                </label>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
+                {!editingUser && <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Tenant</label>
                   <select value={form.tenantId} onChange={(e) => setForm(f => ({ ...f, tenantId: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                     <option value="">No tenant</option>
                     {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
-                </div>
+                </div>}
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Roles</label>
                   <select multiple value={form.roleIds.map(String)}
@@ -294,11 +353,11 @@ export default function Users() {
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 px-5 py-4 border-t">
-              <button onClick={() => setModal(false)} className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">Cancel</button>
+              <button onClick={() => { setModal(false); setEditingUser(null); }} className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">Cancel</button>
               <button onClick={save}
-                disabled={saving || !form.firstName || !form.lastName || !form.email || !form.userName || !form.password || !form.departmentId || !form.designationId}
+                disabled={saving || !form.firstName || !form.lastName || !form.departmentId || !form.designationId || (!editingUser && (!form.email || !form.userName || !form.password))}
                 className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
-                {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Create User
+                {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {editingUser ? "Save Changes" : "Create User"}
               </button>
             </div>
           </div>

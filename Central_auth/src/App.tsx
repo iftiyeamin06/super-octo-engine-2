@@ -12,6 +12,7 @@ import Designations from "./pages/Designations";
 import Sessions from "./pages/Sessions";
 import AuditLogs from "./pages/AuditLogs";
 import Services from "./pages/Services";
+import Modules from "./pages/Modules";
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="sessions" element={<Sessions />} />
             <Route path="audit" element={<AuditLogs />} />
             <Route path="services" element={<Services />} />
+            <Route path="Modules" element={<Modules />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

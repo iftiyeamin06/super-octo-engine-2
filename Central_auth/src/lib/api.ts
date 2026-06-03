@@ -30,8 +30,11 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
     handleUnauthorized();
     throw new Error("Unauthorized");
   }
+  if (res.status === 204) return undefined as T;
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  if (!text.trim()) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 export const api = {
@@ -48,7 +51,7 @@ export const api = {
     list: (params?: Record<string, string>) =>
       req<PagedResult<UserListItem>>("/users?" + new URLSearchParams(params)),
     create: (data: unknown)          => req("/users", { method: "POST", body: JSON.stringify(data) }),
-    update: (id: number, data: unknown) => req(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    update: (id: number, data: UserUpdatePayload) => req(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     lock:   (id: number)             => req(`/users/${id}/lock`, { method: "PATCH" }),
     unlock: (id: number)             => req(`/users/${id}/unlock`, { method: "PATCH" }),
     delete: (id: number)             => req(`/users/${id}`, { method: "DELETE" }),
@@ -86,6 +89,12 @@ export const api = {
     update: (id: number, data: unknown) => req(`/services/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     addApiKey: (id: number, data: unknown) => req<{ id: number; description: string; expiresAt?: string }>(`/services/${id}/api-keys`, { method: "POST", body: JSON.stringify(data) }),
   },
+  modules: {
+    list: () => req<ModuleListItem[]>("/modules"),
+    detail: (id: number) => req<ModuleDetail>(`/modules/${id}`),
+    create: (data: ModuleSavePayload) => req<void>("/modules", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: number, data: ModuleSavePayload) => req<void>(`/modules/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  },
   departments: {
     list: (tenantId?: number) => req<DepartmentItem[]>(`/departments${tenantId ? `?tenantId=${tenantId}` : ""}`),
     create: (data: unknown) => req("/departments", { method: "POST", body: JSON.stringify(data) }),
@@ -110,14 +119,18 @@ export interface DashboardStats {
 export interface RecentUser { id: number; fullName: string; email: string; role?: string; tenant?: string; isActive: boolean; isLocked: boolean; createdAt: string; }
 export interface AuditActivity { id: number; actionType: string; entityName: string; userEmail?: string; ipAddress?: string; createdAt: string; }
 export interface PagedResult<T> { items: T[]; totalCount: number; page: number; pageSize: number; totalPages: number; }
-export interface UserListItem { id: number; firstName: string; lastName: string; email: string; userName: string; isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean; failedLoginAttempts: number; lastLoginAt?: string; createdAt: string; tenantId?: number; tenantName?: string; departmentId?: number; departmentName?: string; designationId?: number; designationName?: string; roles: string[]; }
+export interface UserListItem { id: number; firstName: string; lastName: string; email: string; userName: string; phoneNumber?: string | null; isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean; failedLoginAttempts: number; lastLoginAt?: string; createdAt: string; tenantId?: number; tenantName?: string; departmentId?: number; departmentName?: string; designationId?: number; designationName?: string; roles: string[]; }
+export interface UserUpdatePayload { firstName: string; lastName: string; phoneNumber?: string | null; departmentId?: number | null; designationId?: number | null; isActive: boolean; roleIds: number[]; }
 export interface RoleListItem { id: number; name: string; description?: string; isActive: boolean; isSystem: boolean; tenantId?: number; tenantName?: string; userCount: number; permissionCount: number; createdAt: string; }
 export interface RoleDetail { id: number; name: string; description?: string; isActive: boolean; isSystem: boolean; permissions: Permission[]; modules: Module[]; }
 export interface Permission { id: number; code: string; name: string; description?: string; groupName?: string; isSystem: boolean; isActive: boolean; }
 export interface Module { id: number; name: string; code: string; route: string; icon?: string; sortOrder: number; parentId?: number; isActive: boolean; }
-export interface TenantListItem { id: number; name: string; code: string; description?: string; contactEmail?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string; isActive: boolean; createdAt: string; userCount: number; }
+export interface TenantListItem { id: number; name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string; isActive: boolean; createdAt: string; userCount: number; }
 export interface Session { id: number; sessionId: string; appUserId: number; userEmail: string; deviceId?: string; ipAddress?: string; loginAtUtc: string; expiresAtUtc: string; isActive: boolean; }
 export interface AuditEntry { id: number; actionType: string; entityName: string; entityKey: string; userEmail?: string; ipAddress?: string; createdAt: string; }
 export interface ServiceItem { id: number; name: string; code: string; description?: string; baseUrl?: string; isActive: boolean; createdAt: string; apiKeyCount: number; }
+export interface ModuleListItem { id: number; name: string; code: string; route: string; isActive: boolean; createdAt: string; updatedAt?: string | null; }
+export interface ModuleDetail { id: number; name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
+export interface ModuleSavePayload { name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
 export interface DepartmentItem { id: number; name: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
 export interface DesignationItem { id: number; name: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
