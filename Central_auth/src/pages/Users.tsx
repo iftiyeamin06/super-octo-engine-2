@@ -3,7 +3,7 @@ import { Search, Plus, UserCheck, UserX, Trash2, ChevronLeft, ChevronRight, X, L
 import Badge from "../components/Badge";
 import { TableSkeleton } from "../components/Skeleton";
 import { cn } from "../lib/utils";
-import { api, type UserListItem, type TenantListItem, type RoleListItem } from "../lib/api";
+import { api, type UserListItem, type TenantListItem, type RoleListItem, type DepartmentItem, type DesignationItem } from "../lib/api";
 
 const emptyForm = {
   firstName: "", lastName: "", email: "", userName: "", password: "",
@@ -27,6 +27,8 @@ export default function Users() {
 
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [roles, setRoles] = useState<RoleListItem[]>([]);
+  const [departments, setDepartments] = useState<DepartmentItem[]>([]);
+  const [designations, setDesignations] = useState<DesignationItem[]>([]);
 
   const PAGE_SIZE = 15;
 
@@ -46,7 +48,7 @@ export default function Users() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    Promise.all([api.tenants.list(), api.roles.list()]).then(([t, r]) => { setTenants(t); setRoles(r); }).catch(() => {});
+    Promise.all([api.tenants.list(), api.roles.list(), api.departments.list(), api.designations.list()]).then(([t, r, d, dg]) => { setTenants(t); setRoles(r); setDepartments(d); setDesignations(dg); }).catch(() => {});
   }, []);
 
   function openCreate() {
@@ -238,6 +240,25 @@ export default function Users() {
                 </div>
               ))}
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Department *</label>
+                  <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+                    <option value="">Select department</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-1">Designation *</label>
+                  <select value={form.designationId} onChange={(e) => setForm(f => ({ ...f, designationId: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+                    <option value="">Select designation</option>
+                    {designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1">Password *</label>
                 <div className="relative">
@@ -275,7 +296,7 @@ export default function Users() {
             <div className="flex items-center justify-end gap-3 px-5 py-4 border-t">
               <button onClick={() => setModal(false)} className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">Cancel</button>
               <button onClick={save}
-                disabled={saving || !form.firstName || !form.lastName || !form.email || !form.userName || !form.password}
+                disabled={saving || !form.firstName || !form.lastName || !form.email || !form.userName || !form.password || !form.departmentId || !form.designationId}
                 className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
                 {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Create User
               </button>

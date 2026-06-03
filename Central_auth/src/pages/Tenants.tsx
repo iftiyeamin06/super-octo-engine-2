@@ -3,7 +3,7 @@ import { Building2, Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
 import Badge from "../components/Badge";
 import { api, type TenantListItem } from "../lib/api";
 
-const empty = { name: "", code: "", description: "", contactEmail: "", subscriptionPlan: "", isActive: true };
+const empty = { name: "", code: "", description: "", contactEmail: "", logoUrl: "", subscriptionPlan: "", subscriptionExpiresAt: "", isActive: true };
 
 export default function Tenants() {
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
@@ -31,7 +31,7 @@ export default function Tenants() {
   }
 
   function openEdit(t: TenantListItem) {
-    setForm({ name: t.name, code: t.code, description: t.description ?? "", contactEmail: t.contactEmail ?? "", subscriptionPlan: t.subscriptionPlan ?? "", isActive: t.isActive });
+    setForm({ name: t.name, code: t.code, description: t.description ?? "", contactEmail: t.contactEmail ?? "", logoUrl: t.logoUrl ?? "", subscriptionPlan: t.subscriptionPlan ?? "", subscriptionExpiresAt: t.subscriptionExpiresAt ? new Date(t.subscriptionExpiresAt).toISOString().split('T')[0] : "", isActive: t.isActive });
     setFormError(null);
     setModal({ open: true, editing: t });
   }
@@ -128,9 +128,10 @@ export default function Tenants() {
               {[
                 { label: "Name *", key: "name", type: "text", placeholder: "Acme Corp" },
                 { label: "Code *", key: "code", type: "text", placeholder: "ACME" },
+                { label: "Description", key: "description", type: "text", placeholder: "Optional description" },
+                { label: "Logo URL", key: "logoUrl", type: "url", placeholder: "https://example.com/logo.png" },
                 { label: "Contact Email", key: "contactEmail", type: "email", placeholder: "admin@acme.com" },
                 { label: "Subscription Plan", key: "subscriptionPlan", type: "text", placeholder: "Enterprise" },
-                { label: "Description", key: "description", type: "text", placeholder: "Optional description" },
               ].map(({ label, key, type, placeholder }) => (
                 <div key={key}>
                   <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
@@ -138,6 +139,11 @@ export default function Tenants() {
                     className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
                 </div>
               ))}
+              <div>
+                <label className="block text-xs font-medium text-foreground mb-1">Subscription Expiration Date</label>
+                <input type="date" value={form.subscriptionExpiresAt} onChange={(e) => setForm(f => ({ ...f, subscriptionExpiresAt: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+              </div>
               {modal.editing && (
                 <div className="flex items-center gap-2">
                   <input type="checkbox" id="tActive" checked={form.isActive} onChange={(e) => setForm(f => ({ ...f, isActive: e.target.checked }))} className="rounded" />
