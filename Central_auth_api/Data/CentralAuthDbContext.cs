@@ -61,6 +61,10 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         // Unique constraints
         mb.Entity<AppUser>().HasIndex(e => new { e.TenantId, e.NormalizedEmail }).IsUnique();
         mb.Entity<AppUser>().HasIndex(e => new { e.TenantId, e.NormalizedUserName }).IsUnique();
+        mb.Entity<AppUser>()
+            .HasIndex(e => new { e.TenantId, e.EmployeeId })
+            .HasDatabaseName("uq_auth_appusers_tenant_employee")
+            .IsUnique();
         mb.Entity<Role>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         mb.Entity<Department>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         mb.Entity<Designation>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();

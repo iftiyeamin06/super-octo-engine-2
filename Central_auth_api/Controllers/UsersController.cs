@@ -1,6 +1,7 @@
 using CentralAuth.Api.Data;
 using CentralAuth.Api.DTOs;
 using CentralAuth.Api.Models;
+using CentralAuth.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,7 +9,7 @@ namespace CentralAuth.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class UsersController(CentralAuthDbContext db) : ControllerBase
+public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator employeeIdGenerator) : ControllerBase
 {
     [HttpGet]
     public async Task<PagedResult<UserListDto>> GetAll(
@@ -40,6 +41,7 @@ public class UsersController(CentralAuthDbContext db) : ControllerBase
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(u => new UserListDto(
                 u.Id, u.FirstName, u.LastName, u.Email, u.UserName,
+                u.EmployeeId,
                 u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
                 u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
                 u.TenantId, u.Tenant != null ? u.Tenant.Name : null,
@@ -62,6 +64,7 @@ public class UsersController(CentralAuthDbContext db) : ControllerBase
         if (u is null) return NotFound();
 
         return new UserListDto(u.Id, u.FirstName, u.LastName, u.Email, u.UserName,
+            u.EmployeeId,
             u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
             u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
             u.TenantId, u.Tenant?.Name, u.DepartmentId, u.Department?.Name,
@@ -72,6 +75,17 @@ public class UsersController(CentralAuthDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] UserCreateDto dto)
     {
+        if (dto.TenantId is null)
+            return BadRequest(new { error = "TenantId is required for automatic EmployeeId generation." });
+
+        // ── Per-tenant serialization ─────────────────────────────────────
+        // We wrap ID generation and the INSERT in the SAME transaction.
+        // The generator issues SELECT ... FOR UPDATE on auth_tenants row,
+        // so a concurrent Create for the same tenant will block at the
+        // generator call until we commit. This makes the
+        // (read-max → compute-next → insert) sequence atomic per tenant.
+        await using var tx = await db.Database.BeginTransactionAsync();
+
         var user = new AppUser
         {
             TenantId = dto.TenantId, FirstName = dto.FirstName, LastName = dto.LastName,
@@ -81,6 +95,9 @@ public class UsersController(CentralAuthDbContext db) : ControllerBase
             PhoneNumber = dto.PhoneNumber, DepartmentId = dto.DepartmentId,
             DesignationId = dto.DesignationId, IsActive = true
         };
+
+        user.AssignEmployeeId(await employeeIdGenerator.GenerateNextEmployeeIdAsync(dto.TenantId.Value));
+
         db.AppUsers.Add(user);
         await db.SaveChangesAsync();
 
@@ -88,6 +105,8 @@ public class UsersController(CentralAuthDbContext db) : ControllerBase
             db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
 
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
+
         return CreatedAtAction(nameof(GetById), new { id = user.Id }, new { user.Id });
     }
 

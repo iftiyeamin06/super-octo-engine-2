@@ -156,14 +156,14 @@ export default function Users() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
-                  {["User", "Roles", "Tenant", "Department", "Designation", "2FA", "Status", "Joined", "Actions"].map(h => (
+                  {["User", "Employee ID", "Roles", "Tenant", "Department", "Designation", "2FA", "Status", "Joined", "Actions"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {items.length === 0 ? (
-                  <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">No users found</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">No users found</td></tr>
                 ) : items.map((u) => (
                   <tr key={u.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3">
@@ -176,6 +176,9 @@ export default function Users() {
                           <p className="text-xs text-muted-foreground">{u.email}</p>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap font-mono">
+                      {u.employeeId ?? <span className="font-sans">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">

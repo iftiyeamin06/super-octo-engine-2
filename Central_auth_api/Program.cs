@@ -1,5 +1,6 @@
 using System.Text;
 using CentralAuth.Api.Data;
+using CentralAuth.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -12,6 +13,9 @@ if (string.IsNullOrWhiteSpace(connStr))
 
 builder.Services.AddDbContext<CentralAuthDbContext>(opt =>
     opt.UseMySql(connStr, ServerVersion.AutoDetect(connStr)));
+
+builder.Services.Configure<EmployeeIdOptions>(builder.Configuration.GetSection("EmployeeId"));
+builder.Services.AddScoped<IEmployeeIdGenerator, EmployeeIdGenerator>();
 
 var jwtCfg = builder.Configuration.GetSection("Jwt");
 var jwtKeyValue = jwtCfg["Key"];
