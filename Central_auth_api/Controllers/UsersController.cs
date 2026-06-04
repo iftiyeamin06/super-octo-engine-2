@@ -97,6 +97,7 @@ public class UsersController(CentralAuthDbContext db) : ControllerBase
         var user = await db.AppUsers.Include(u => u.UserRoles).FirstOrDefaultAsync(u => u.Id == id);
         if (user is null) return NotFound();
 
+        user.TenantId = dto.TenantId;
         user.FirstName = dto.FirstName; user.LastName = dto.LastName;
         user.PhoneNumber = dto.PhoneNumber; user.DepartmentId = dto.DepartmentId;
         user.DesignationId = dto.DesignationId; user.IsActive = dto.IsActive;

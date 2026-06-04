@@ -1,16 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
-import { Search, Plus, UserCheck, UserX, Trash2, ChevronLeft, ChevronRight, X, Loader2, Eye, EyeOff, Pencil } from "lucide-react";
+import { Search, Plus, UserCheck, UserX, Trash2, ChevronLeft, ChevronRight, X, Pencil } from "lucide-react";
 import Badge from "../components/Badge";
 import { TableSkeleton } from "../components/Skeleton";
+import UserForm from "../components/UserForm";
+import { type UserFormValues } from "../components/userFormModel";
 import { cn } from "../lib/utils";
 import { api, type UserListItem, type TenantListItem, type RoleListItem, type DepartmentItem, type DesignationItem } from "../lib/api";
-
-const emptyForm = {
-  firstName: "", lastName: "", email: "", userName: "", password: "",
-  phoneNumber: "", tenantId: "", departmentId: "", designationId: "",
-  isActive: true,
-  roleIds: [] as number[],
-};
 
 export default function Users() {
   const [items, setItems] = useState<UserListItem[]>([]);
@@ -22,8 +17,6 @@ export default function Users() {
 
   const [modal, setModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [showPwd, setShowPwd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -55,59 +48,51 @@ export default function Users() {
 
   function openCreate() {
     setEditingUser(null);
-    setForm(emptyForm);
     setFormError(null);
-    setShowPwd(false);
     setModal(true);
   }
 
   function openEdit(user: UserListItem) {
-    const roleIds = roles.filter(r => user.roles.includes(r.name)).map(r => r.id);
     setEditingUser(user);
-    setForm({
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      userName: user.userName,
-      password: "",
-      phoneNumber: user.phoneNumber ?? "",
-      tenantId: user.tenantId ? String(user.tenantId) : "",
-      departmentId: user.departmentId ? String(user.departmentId) : "",
-      designationId: user.designationId ? String(user.designationId) : "",
-      isActive: user.isActive,
-      roleIds,
-    });
     setFormError(null);
-    setShowPwd(false);
     setModal(true);
   }
 
-  async function save() {
+  function closeModal() {
+    setModal(false);
+    setEditingUser(null);
+  }
+
+  async function save(values: UserFormValues) {
     setSaving(true); setFormError(null);
     try {
       if (editingUser) {
-        await api.users.update(editingUser.id, {
-          firstName: form.firstName,
-          lastName: form.lastName,
-          phoneNumber: form.phoneNumber || null,
-          departmentId: form.departmentId ? Number(form.departmentId) : null,
-          designationId: form.designationId ? Number(form.designationId) : null,
-          isActive: form.isActive,
-          roleIds: form.roleIds,
-        });
+        const payload: Parameters<typeof api.users.update>[1] = {
+          firstName: values.firstName,
+          lastName: values.lastName,
+          email: values.email,
+          userName: values.userName,
+          phoneNumber: values.phoneNumber || null,
+          tenantId: values.tenantId ? Number(values.tenantId) : null,
+          departmentId: values.departmentId ? Number(values.departmentId) : null,
+          designationId: values.designationId ? Number(values.designationId) : null,
+          isActive: values.isActive,
+          roleIds: values.roleIds,
+        };
+        if (values.newPassword) payload.newPassword = values.newPassword;
+        await api.users.update(editingUser.id, payload);
       } else {
         await api.users.create({
-          firstName: form.firstName, lastName: form.lastName,
-          email: form.email, userName: form.userName, password: form.password,
-          phoneNumber: form.phoneNumber || null,
-          tenantId: form.tenantId ? Number(form.tenantId) : null,
-          departmentId: form.departmentId ? Number(form.departmentId) : null,
-          designationId: form.designationId ? Number(form.designationId) : null,
-          roleIds: form.roleIds,
+          firstName: values.firstName, lastName: values.lastName,
+          email: values.email, userName: values.userName, password: values.password,
+          phoneNumber: values.phoneNumber || null,
+          tenantId: values.tenantId ? Number(values.tenantId) : null,
+          departmentId: values.departmentId ? Number(values.departmentId) : null,
+          designationId: values.designationId ? Number(values.designationId) : null,
+          roleIds: values.roleIds,
         });
       }
-      setModal(false);
-      setEditingUser(null);
+      closeModal();
       load();
     } catch (e: unknown) {
       setFormError(e instanceof Error ? e.message : editingUser ? "Failed to update user" : "Failed to create user");
@@ -249,116 +234,21 @@ export default function Users() {
           <div className="bg-card border rounded-xl w-full max-w-lg shadow-xl my-4">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="text-sm font-semibold">{editingUser ? "Edit User" : "Create User"}</h2>
-              <button onClick={() => { setModal(false); setEditingUser(null); }} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+              <button onClick={closeModal} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
             </div>
-            <div className="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
-              {formError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{formError}</div>}
-
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "First Name *", key: "firstName", placeholder: "John" },
-                  { label: "Last Name *", key: "lastName", placeholder: "Doe" },
-                ].map(({ label, key, placeholder }) => (
-                  <div key={key}>
-                    <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
-                    <input value={(form as Record<string, unknown>)[key] as string}
-                      onChange={(e) => setForm(f => ({ ...f, [key]: e.target.value }))}
-                      placeholder={placeholder}
-                      className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-                  </div>
-                ))}
-              </div>
-
-              {!editingUser && [
-                { label: "Email *", key: "email", type: "email", placeholder: "john@example.com" },
-                { label: "Username *", key: "userName", type: "text", placeholder: "john.doe" },
-              ].map(({ label, key, type, placeholder }) => (
-                <div key={key}>
-                  <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
-                  <input type={type} value={(form as Record<string, unknown>)[key] as string}
-                    onChange={(e) => setForm(f => ({ ...f, [key]: e.target.value }))}
-                    placeholder={placeholder}
-                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-                </div>
-              ))}
-
-              <div>
-                <label className="block text-xs font-medium text-foreground mb-1">Phone</label>
-                <input type="tel" value={form.phoneNumber}
-                  onChange={(e) => setForm(f => ({ ...f, phoneNumber: e.target.value }))}
-                  placeholder="+880 1700 000000"
-                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">Department *</label>
-                  <select value={form.departmentId} onChange={(e) => setForm(f => ({ ...f, departmentId: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
-                    <option value="">Select department</option>
-                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">Designation *</label>
-                  <select value={form.designationId} onChange={(e) => setForm(f => ({ ...f, designationId: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
-                    <option value="">Select designation</option>
-                    {designations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {!editingUser && <div>
-                <label className="block text-xs font-medium text-foreground mb-1">Password *</label>
-                <div className="relative">
-                  <input type={showPwd ? "text" : "password"} value={form.password}
-                    onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))}
-                    placeholder="Min 8 characters"
-                    className="w-full px-3 py-2 pr-10 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-                  <button type="button" onClick={() => setShowPwd(s => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                    {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>}
-
-              {editingUser && (
-                <label className="flex items-center gap-2 text-sm text-foreground">
-                  <input type="checkbox" checked={form.isActive}
-                    onChange={(e) => setForm(f => ({ ...f, isActive: e.target.checked }))}
-                    className="h-4 w-4 rounded border bg-background accent-primary" />
-                  Is Active
-                </label>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                {!editingUser && <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">Tenant</label>
-                  <select value={form.tenantId} onChange={(e) => setForm(f => ({ ...f, tenantId: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
-                    <option value="">No tenant</option>
-                    {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                </div>}
-                <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">Roles</label>
-                  <select multiple value={form.roleIds.map(String)}
-                    onChange={(e) => setForm(f => ({ ...f, roleIds: Array.from(e.target.selectedOptions, o => Number(o.value)) }))}
-                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 h-20">
-                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-0.5">Hold Ctrl to select multiple</p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t">
-              <button onClick={() => { setModal(false); setEditingUser(null); }} className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">Cancel</button>
-              <button onClick={save}
-                disabled={saving || !form.firstName || !form.lastName || !form.departmentId || !form.designationId || (!editingUser && (!form.email || !form.userName || !form.password))}
-                className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
-                {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {editingUser ? "Save Changes" : "Create User"}
-              </button>
+            <div className="px-5 py-4 max-h-[70vh] overflow-y-auto">
+              <UserForm
+                key={editingUser ? `edit-${editingUser.id}` : "create"}
+                initialData={editingUser}
+                tenants={tenants}
+                roles={roles}
+                departments={departments}
+                designations={designations}
+                saving={saving}
+                formError={formError}
+                onSubmit={save}
+                onCancel={closeModal}
+              />
             </div>
           </div>
         </div>

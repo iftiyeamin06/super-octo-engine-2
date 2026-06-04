@@ -16,6 +16,6 @@ public record UserCreateDto(
     List<long> RoleIds);
 
 public record UserUpdateDto(
-    string FirstName, string LastName, string? PhoneNumber,
+    long? TenantId, string FirstName, string LastName, string? PhoneNumber,
     long? DepartmentId, long? DesignationId, bool IsActive,
     List<long> RoleIds);
