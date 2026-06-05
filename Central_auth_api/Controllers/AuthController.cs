@@ -39,7 +39,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         return Ok(new LoginResponse(
             token,
             expiry,
-            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email, user.TenantUsers.Select(tu => tu.Tenant!.Name).FirstOrDefault(), roles)
+            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email, user.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(), roles)
         ));
     }
 

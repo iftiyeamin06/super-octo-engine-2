@@ -67,29 +67,33 @@ export default function Users() {
     setSaving(true); setFormError(null);
     try {
       if (editingUser) {
+        const tenantIds: number[] | null = values.tenantId ? [Number(values.tenantId)] : null;
+        const roleIds:   number[]         = values.roleIds.map((id) => Number(id));
         const payload: Parameters<typeof api.users.update>[1] = {
           firstName: values.firstName,
           lastName: values.lastName,
           email: values.email,
           userName: values.userName,
           phoneNumber: values.phoneNumber || null,
-          tenantId: values.tenantId ? Number(values.tenantId) : null,
+          tenantIds,
           departmentId: values.departmentId ? Number(values.departmentId) : null,
           designationId: values.designationId ? Number(values.designationId) : null,
           isActive: values.isActive,
-          roleIds: values.roleIds,
+          roleIds,
         };
         if (values.newPassword) payload.newPassword = values.newPassword;
         await api.users.update(editingUser.id, payload);
       } else {
+        const tenantIds: number[] = values.tenantId ? [Number(values.tenantId)] : [];
+        const roleIds:   number[] = values.roleIds.map((id) => Number(id));
         await api.users.create({
           firstName: values.firstName, lastName: values.lastName,
           email: values.email, userName: values.userName, password: values.password,
           phoneNumber: values.phoneNumber || null,
-          tenantId: values.tenantId ? Number(values.tenantId) : null,
+          tenantIds,
           departmentId: values.departmentId ? Number(values.departmentId) : null,
           designationId: values.designationId ? Number(values.designationId) : null,
-          roleIds: values.roleIds,
+          roleIds,
         });
       }
       closeModal();

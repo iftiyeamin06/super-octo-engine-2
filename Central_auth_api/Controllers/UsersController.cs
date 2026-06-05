@@ -41,11 +41,11 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(u => new UserListDto(
                 u.Id, u.FirstName, u.LastName, u.Email, u.UserName,
-                u.TenantUsers.Select(tu => tu.EmployeeId).FirstOrDefault(),
+                u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.EmployeeId).FirstOrDefault(),
                 u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
                 u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
-                u.TenantUsers.Select(tu => tu.TenantId).FirstOrDefault(),
-                u.TenantUsers.Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+                u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.TenantId).FirstOrDefault(),
+                u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
                 u.DepartmentId, u.Department != null ? u.Department.Name : null,
                 u.DesignationId, u.Designation != null ? u.Designation.Name : null,
                 u.UserRoles.Where(ur => ur.IsActive).Select(ur => ur.Role.Name).ToList()))
@@ -66,11 +66,11 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         if (u is null) return NotFound();
 
         return new UserListDto(u.Id, u.FirstName, u.LastName, u.Email, u.UserName,
-            u.TenantUsers.Select(tu => tu.EmployeeId).FirstOrDefault(),
+            u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.EmployeeId).FirstOrDefault(),
             u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
             u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
-            u.TenantUsers.Select(tu => tu.TenantId).FirstOrDefault(),
-            u.TenantUsers.Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+            u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.TenantId).FirstOrDefault(),
+            u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
             u.DepartmentId, u.Department?.Name,
             u.DesignationId, u.Designation?.Name,
             u.UserRoles.Where(ur => ur.IsActive).Select(ur => ur.Role.Name).ToList());
@@ -81,6 +81,10 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
     {
         if (dto.TenantIds is null || dto.TenantIds.Count == 0)
             return BadRequest(new { error = "At least one TenantId is required for automatic EmployeeId generation." });
+
+        var invalidIds = dto.TenantIds.Where(tid => !db.Tenants.Any(t => t.Id == tid)).ToList();
+        if (invalidIds.Count != 0)
+            return BadRequest(new { error = $"The following tenant IDs do not exist: [{string.Join(", ", invalidIds)}]" });
 
         // ── Per-tenant serialization ─────────────────────────────────────
         // We wrap ID generation and the INSERT in the SAME transaction.
@@ -137,22 +141,55 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         user.DesignationId = dto.DesignationId; user.IsActive = dto.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
 
-        // OLD: user.TenantId = dto.TenantId;
-        // NEW: ensure a link to the requested tenant exists; create one with
-        // a freshly-generated per-tenant EmployeeId if not.
-        if (dto.TenantId is long requestedTenantId)
+        // ── Replace tenant links with the desired set ───────────────────
+        // Semantics: dto.TenantIds is the COMPLETE desired set of tenants
+        // this user should belong to. Anything not in the array is
+        // soft-deleted (IsActive=false, audit trail preserved); anything
+        // new is created with a fresh per-tenant EmployeeId; anything
+        // already present (active or soft-deleted) is preserved or
+        // re-activated, so the (AppUserId, TenantId) unique index is
+        // never violated.
+        if (dto.TenantIds is not null)
         {
-            var hasLink = user.TenantUsers.Any(tu => tu.TenantId == requestedTenantId);
-            if (!hasLink)
+            var invalidIds = dto.TenantIds.Where(tid => !db.Tenants.Any(t => t.Id == tid)).ToList();
+            if (invalidIds.Count != 0)
+                return BadRequest(new { error = $"The following tenant IDs do not exist: [{string.Join(", ", invalidIds)}]" });
+
+            await using var tx = await db.Database.BeginTransactionAsync();
+
+            var desired = dto.TenantIds.ToHashSet();
+
+            foreach (var stale in user.TenantUsers.Where(tu => tu.IsActive && !desired.Contains(tu.TenantId)).ToList())
             {
-                var newEmployeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(requestedTenantId);
-                user.TenantUsers.Add(new TenantUser
-                {
-                    AppUserId  = user.Id,
-                    TenantId   = requestedTenantId,
-                    EmployeeId = newEmployeeId
-                });
+                stale.IsActive = false;
+                stale.UpdatedAt = DateTime.UtcNow;
             }
+
+            foreach (var tenantId in desired)
+            {
+                var existing = user.TenantUsers.FirstOrDefault(tu => tu.TenantId == tenantId);
+                if (existing is not null)
+                {
+                    if (!existing.IsActive)
+                    {
+                        existing.IsActive = true;
+                        existing.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+                else
+                {
+                    var newEmployeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId);
+                    user.TenantUsers.Add(new TenantUser
+                    {
+                        AppUserId  = user.Id,
+                        TenantId   = tenantId,
+                        EmployeeId = newEmployeeId
+                    });
+                }
+            }
+
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
         }
 
         // Sync roles

@@ -40,7 +40,7 @@ public class DashboardController(CentralAuthDbContext db) : ControllerBase
                 (u.FirstName + " " + u.LastName).Trim(),
                 u.Email,
                 u.UserRoles.Where(ur => ur.IsActive).Select(ur => ur.Role.Name).FirstOrDefault(),
-                u.TenantUsers.Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+                u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
                 u.IsActive, u.IsLocked, u.CreatedAt))
             .ToListAsync();
     }

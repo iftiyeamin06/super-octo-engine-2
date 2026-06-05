@@ -40,8 +40,12 @@ export default function Tenants() {
     setSaving(true);
     setFormError(null);
     try {
-      if (modal.editing) await api.tenants.update(modal.editing.id, form);
-      else await api.tenants.create(form);
+      const subscriptionExpiresAt: string | null = form.subscriptionExpiresAt
+        ? new Date(form.subscriptionExpiresAt).toISOString()
+        : null;
+      const payload = { ...form, subscriptionExpiresAt };
+      if (modal.editing) await api.tenants.update(modal.editing.id, payload);
+      else await api.tenants.create(payload);
       setModal({ open: false });
       load();
     } catch (e: unknown) {

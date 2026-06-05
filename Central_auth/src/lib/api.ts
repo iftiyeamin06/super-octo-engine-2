@@ -50,7 +50,7 @@ export const api = {
   users: {
     list: (params?: Record<string, string>) =>
       req<PagedResult<UserListItem>>("/users?" + new URLSearchParams(params)),
-    create: (data: unknown)          => req("/users", { method: "POST", body: JSON.stringify(data) }),
+    create: (data: UserCreatePayload) => req("/users", { method: "POST", body: JSON.stringify(data) }),
     update: (id: number, data: UserUpdatePayload) => req(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     lock:   (id: number)             => req(`/users/${id}/lock`, { method: "PATCH" }),
     unlock: (id: number)             => req(`/users/${id}/unlock`, { method: "PATCH" }),
@@ -65,8 +65,8 @@ export const api = {
   },
   tenants: {
     list:   ()                       => req<TenantListItem[]>("/tenants"),
-    create: (data: unknown)          => req("/tenants", { method: "POST", body: JSON.stringify(data) }),
-    update: (id: number, data: unknown) => req(`/tenants/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    create: (data: TenantPayload)    => req("/tenants", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: number, data: TenantPayload) => req(`/tenants/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (id: number)             => req(`/tenants/${id}`, { method: "DELETE" }),
   },
   permissions: {
@@ -120,12 +120,14 @@ export interface RecentUser { id: number; fullName: string; email: string; role?
 export interface AuditActivity { id: number; actionType: string; entityName: string; userEmail?: string; ipAddress?: string; createdAt: string; }
 export interface PagedResult<T> { items: T[]; totalCount: number; page: number; pageSize: number; totalPages: number; }
 export interface UserListItem { id: number; firstName: string; lastName: string; email: string; userName: string; employeeId?: string | null; phoneNumber?: string | null; isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean; failedLoginAttempts: number; lastLoginAt?: string; createdAt: string; tenantId?: number; tenantName?: string; departmentId?: number; departmentName?: string; designationId?: number; designationName?: string; roles: string[]; }
-export interface UserUpdatePayload { firstName: string; lastName: string; email?: string; userName?: string; phoneNumber?: string | null; tenantId?: number | null; departmentId?: number | null; designationId?: number | null; isActive: boolean; roleIds: number[]; newPassword?: string; }
+export interface UserUpdatePayload { firstName: string; lastName: string; email?: string; userName?: string; phoneNumber?: string | null; tenantIds?: number[] | null; departmentId?: number | null; designationId?: number | null; isActive: boolean; roleIds: number[]; newPassword?: string; }
+export interface UserCreatePayload { firstName: string; lastName: string; email: string; userName: string; password: string; phoneNumber?: string | null; tenantIds: number[]; departmentId?: number | null; designationId?: number | null; roleIds: number[]; }
 export interface RoleListItem { id: number; name: string; description?: string; isActive: boolean; isSystem: boolean; tenantId?: number; tenantName?: string; userCount: number; permissionCount: number; createdAt: string; }
 export interface RoleDetail { id: number; name: string; description?: string; isActive: boolean; isSystem: boolean; permissions: Permission[]; modules: Module[]; }
 export interface Permission { id: number; code: string; name: string; description?: string; groupName?: string; isSystem: boolean; isActive: boolean; }
 export interface Module { id: number; name: string; code: string; route: string; icon?: string; sortOrder: number; parentId?: number; isActive: boolean; }
 export interface TenantListItem { id: number; name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string; isActive: boolean; createdAt: string; userCount: number; }
+export interface TenantPayload { name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string | null; isActive: boolean; }
 export interface Session { id: number; sessionId: string; appUserId: number; userEmail: string; deviceId?: string; ipAddress?: string; loginAtUtc: string; expiresAtUtc: string; isActive: boolean; }
 export interface AuditEntry { id: number; actionType: string; entityName: string; entityKey: string; userEmail?: string; ipAddress?: string; createdAt: string; }
 export interface ServiceItem { id: number; name: string; code: string; description?: string; baseUrl?: string; isActive: boolean; createdAt: string; apiKeyCount: number; }
