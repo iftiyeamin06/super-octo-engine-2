@@ -7,6 +7,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
 {
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<AppUser> AppUsers => Set<AppUser>();
+    public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Designation> Designations => Set<Designation>();
     public DbSet<Role> Roles => Set<Role>();
@@ -36,6 +37,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         // Table name mappings (auth_ prefix)
         mb.Entity<Tenant>().ToTable("auth_tenants");
         mb.Entity<AppUser>().ToTable("auth_appusers");
+        mb.Entity<TenantUser>().ToTable("auth_tenant_users");
         mb.Entity<Department>().ToTable("auth_departments");
         mb.Entity<Designation>().ToTable("auth_designations");
         mb.Entity<Role>().ToTable("auth_roles");
@@ -59,12 +61,10 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<UserDatatablePreference>().ToTable("auth_user_datatable_preferences");
 
         // Unique constraints
-        mb.Entity<AppUser>().HasIndex(e => new { e.TenantId, e.NormalizedEmail }).IsUnique();
-        mb.Entity<AppUser>().HasIndex(e => new { e.TenantId, e.NormalizedUserName }).IsUnique();
-        mb.Entity<AppUser>()
-            .HasIndex(e => new { e.TenantId, e.EmployeeId })
-            .HasDatabaseName("uq_auth_appusers_tenant_employee")
-            .IsUnique();
+        mb.Entity<AppUser>().HasIndex(e => e.NormalizedEmail).IsUnique();
+        mb.Entity<AppUser>().HasIndex(e => e.NormalizedUserName).IsUnique();
+        mb.Entity<TenantUser>().HasIndex(tu => new { tu.TenantId, tu.EmployeeId }).IsUnique();
+        mb.Entity<TenantUser>().HasIndex(tu => new { tu.AppUserId, tu.TenantId }).IsUnique();
         mb.Entity<Role>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         mb.Entity<Department>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         mb.Entity<Designation>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
@@ -85,8 +85,20 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         // Self-referential: Module.Parent
         mb.Entity<Module>().HasOne(e => e.Parent).WithMany(e => e.Children).HasForeignKey(e => e.ParentId).OnDelete(DeleteBehavior.Restrict);
 
+        // TenantUser (many-to-many join) relationships
+        mb.Entity<TenantUser>()
+            .HasOne(tu => tu.AppUser)
+            .WithMany(u => u.TenantUsers)
+            .HasForeignKey(tu => tu.AppUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        mb.Entity<TenantUser>()
+            .HasOne(tu => tu.Tenant)
+            .WithMany(t => t.TenantUsers)
+            .HasForeignKey(tu => tu.TenantId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // AppUser relationships
-        mb.Entity<AppUser>().HasOne(e => e.Tenant).WithMany(e => e.Users).HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
         mb.Entity<AppUser>().HasOne(e => e.Department).WithMany(e => e.Users).HasForeignKey(e => e.DepartmentId).OnDelete(DeleteBehavior.SetNull);
         mb.Entity<AppUser>().HasOne(e => e.Designation).WithMany(e => e.Users).HasForeignKey(e => e.DesignationId).OnDelete(DeleteBehavior.SetNull);
 

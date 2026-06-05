@@ -11,7 +11,7 @@ public record UserListDto(
     List<string> Roles);
 
 public record UserCreateDto(
-    long? TenantId, string FirstName, string LastName,
+    List<long> TenantIds, string FirstName, string LastName,
     string Email, string UserName, string Password,
     string? PhoneNumber, long? DepartmentId, long? DesignationId,
     List<long> RoleIds);

@@ -18,7 +18,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     {
         var normalized = req.Email.ToUpperInvariant();
         var user = await db.AppUsers
-            .Include(u => u.Tenant)
+            .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
 
@@ -39,7 +39,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         return Ok(new LoginResponse(
             token,
             expiry,
-            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email, user.Tenant?.Name, roles)
+            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email, user.TenantUsers.Select(tu => tu.Tenant!.Name).FirstOrDefault(), roles)
         ));
     }
 

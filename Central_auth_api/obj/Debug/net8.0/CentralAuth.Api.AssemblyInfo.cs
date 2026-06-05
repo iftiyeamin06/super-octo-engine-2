@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CentralAuth.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bfbf675cf956c7a146e42c6f53c46a3609241717")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7b6ab5bc6c09ab958f50adeb13681a3053aa84d4")]
 [assembly: System.Reflection.AssemblyProductAttribute("CentralAuth.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CentralAuth.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -10,7 +10,7 @@ public class Tenant : BaseEntity
     public string? SubscriptionPlan { get; set; }
     public DateTime? SubscriptionExpiresAt { get; set; }
 
-    public ICollection<AppUser> Users { get; set; } = [];
+    public ICollection<TenantUser> TenantUsers { get; set; } = [];
     public ICollection<Department> Departments { get; set; } = [];
     public ICollection<Designation> Designations { get; set; } = [];
     public ICollection<Role> Roles { get; set; } = [];

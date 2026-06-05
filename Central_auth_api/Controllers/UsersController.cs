@@ -17,7 +17,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         [FromQuery] long? tenantId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var q = db.AppUsers
-            .Include(u => u.Tenant)
+            .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
             .Include(u => u.Department)
             .Include(u => u.Designation)
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
@@ -26,7 +26,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         if (!string.IsNullOrWhiteSpace(search))
             q = q.Where(u => u.FirstName.Contains(search) || u.LastName.Contains(search) || u.Email.Contains(search));
 
-        if (tenantId.HasValue) q = q.Where(u => u.TenantId == tenantId);
+        if (tenantId.HasValue) q = q.Where(u => u.TenantUsers.Any(tu => tu.TenantId == tenantId));
 
         q = status switch
         {
@@ -41,10 +41,11 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(u => new UserListDto(
                 u.Id, u.FirstName, u.LastName, u.Email, u.UserName,
-                u.EmployeeId,
+                u.TenantUsers.Select(tu => tu.EmployeeId).FirstOrDefault(),
                 u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
                 u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
-                u.TenantId, u.Tenant != null ? u.Tenant.Name : null,
+                u.TenantUsers.Select(tu => tu.TenantId).FirstOrDefault(),
+                u.TenantUsers.Select(tu => tu.Tenant!.Name).FirstOrDefault(),
                 u.DepartmentId, u.Department != null ? u.Department.Name : null,
                 u.DesignationId, u.Designation != null ? u.Designation.Name : null,
                 u.UserRoles.Where(ur => ur.IsActive).Select(ur => ur.Role.Name).ToList()))
@@ -57,17 +58,20 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
     public async Task<ActionResult<UserListDto>> GetById(long id)
     {
         var u = await db.AppUsers
-            .Include(u => u.Tenant).Include(u => u.Department).Include(u => u.Designation)
+            .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
+            .Include(u => u.Department).Include(u => u.Designation)
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .FirstOrDefaultAsync(u => u.Id == id);
 
         if (u is null) return NotFound();
 
         return new UserListDto(u.Id, u.FirstName, u.LastName, u.Email, u.UserName,
-            u.EmployeeId,
+            u.TenantUsers.Select(tu => tu.EmployeeId).FirstOrDefault(),
             u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
             u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
-            u.TenantId, u.Tenant?.Name, u.DepartmentId, u.Department?.Name,
+            u.TenantUsers.Select(tu => tu.TenantId).FirstOrDefault(),
+            u.TenantUsers.Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+            u.DepartmentId, u.Department?.Name,
             u.DesignationId, u.Designation?.Name,
             u.UserRoles.Where(ur => ur.IsActive).Select(ur => ur.Role.Name).ToList());
     }
@@ -75,8 +79,8 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] UserCreateDto dto)
     {
-        if (dto.TenantId is null)
-            return BadRequest(new { error = "TenantId is required for automatic EmployeeId generation." });
+        if (dto.TenantIds is null || dto.TenantIds.Count == 0)
+            return BadRequest(new { error = "At least one TenantId is required for automatic EmployeeId generation." });
 
         // ── Per-tenant serialization ─────────────────────────────────────
         // We wrap ID generation and the INSERT in the SAME transaction.
@@ -88,7 +92,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         var user = new AppUser
         {
-            TenantId = dto.TenantId, FirstName = dto.FirstName, LastName = dto.LastName,
+            FirstName = dto.FirstName, LastName = dto.LastName,
             Email = dto.Email, NormalizedEmail = dto.Email.ToUpperInvariant(),
             UserName = dto.UserName, NormalizedUserName = dto.UserName.ToUpperInvariant(),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
@@ -96,10 +100,19 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             DesignationId = dto.DesignationId, IsActive = true
         };
 
-        user.AssignEmployeeId(await employeeIdGenerator.GenerateNextEmployeeIdAsync(dto.TenantId.Value));
-
         db.AppUsers.Add(user);
         await db.SaveChangesAsync();
+
+        foreach (var tenantId in dto.TenantIds)
+        {
+            var employeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId);
+            db.TenantUsers.Add(new TenantUser
+            {
+                AppUserId  = user.Id,
+                TenantId   = tenantId,
+                EmployeeId = employeeId
+            });
+        }
 
         foreach (var roleId in dto.RoleIds)
             db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
@@ -113,14 +126,34 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
     [HttpPut("{id:long}")]
     public async Task<ActionResult> Update(long id, [FromBody] UserUpdateDto dto)
     {
-        var user = await db.AppUsers.Include(u => u.UserRoles).FirstOrDefaultAsync(u => u.Id == id);
+        var user = await db.AppUsers
+            .Include(u => u.TenantUsers)
+            .Include(u => u.UserRoles)
+            .FirstOrDefaultAsync(u => u.Id == id);
         if (user is null) return NotFound();
 
-        user.TenantId = dto.TenantId;
         user.FirstName = dto.FirstName; user.LastName = dto.LastName;
         user.PhoneNumber = dto.PhoneNumber; user.DepartmentId = dto.DepartmentId;
         user.DesignationId = dto.DesignationId; user.IsActive = dto.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
+
+        // OLD: user.TenantId = dto.TenantId;
+        // NEW: ensure a link to the requested tenant exists; create one with
+        // a freshly-generated per-tenant EmployeeId if not.
+        if (dto.TenantId is long requestedTenantId)
+        {
+            var hasLink = user.TenantUsers.Any(tu => tu.TenantId == requestedTenantId);
+            if (!hasLink)
+            {
+                var newEmployeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(requestedTenantId);
+                user.TenantUsers.Add(new TenantUser
+                {
+                    AppUserId  = user.Id,
+                    TenantId   = requestedTenantId,
+                    EmployeeId = newEmployeeId
+                });
+            }
+        }
 
         // Sync roles
         db.UserRoles.RemoveRange(user.UserRoles);

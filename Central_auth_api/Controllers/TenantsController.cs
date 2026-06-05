@@ -18,18 +18,18 @@ public class TenantsController(CentralAuthDbContext db) : ControllerBase
             .Select(t => new TenantListDto(
                 t.Id, t.Name, t.Code, t.Description, t.ContactEmail,
                 t.LogoUrl, t.SubscriptionPlan, t.SubscriptionExpiresAt,
-                t.IsActive, t.CreatedAt, t.Users.Count(u => u.IsActive)))
+                t.IsActive, t.CreatedAt, t.TenantUsers.Count(tu => tu.IsActive)))
             .ToListAsync();
     }
 
     [HttpGet("{id:long}")]
     public async Task<ActionResult<TenantListDto>> GetById(long id)
     {
-        var t = await db.Tenants.Include(t => t.Users).FirstOrDefaultAsync(t => t.Id == id);
+        var t = await db.Tenants.Include(t => t.TenantUsers).FirstOrDefaultAsync(t => t.Id == id);
         if (t is null) return NotFound();
         return new TenantListDto(t.Id, t.Name, t.Code, t.Description, t.ContactEmail,
             t.LogoUrl, t.SubscriptionPlan, t.SubscriptionExpiresAt,
-            t.IsActive, t.CreatedAt, t.Users.Count(u => u.IsActive));
+            t.IsActive, t.CreatedAt, t.TenantUsers.Count(tu => tu.IsActive));
     }
 
     [HttpPost]

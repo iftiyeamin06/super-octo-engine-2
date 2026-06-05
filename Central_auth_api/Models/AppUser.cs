@@ -2,8 +2,6 @@ namespace CentralAuth.Api.Models;
 
 public class AppUser : BaseEntity
 {
-    public long? TenantId { get; set; }
-    public string? EmployeeId { get; private set; }
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
@@ -22,7 +20,6 @@ public class AppUser : BaseEntity
     public int FailedLoginAttempts { get; set; }
     public DateTime? LastLoginAt { get; set; }
 
-    public Tenant? Tenant { get; set; }
     public Department? Department { get; set; }
     public Designation? Designation { get; set; }
     public ICollection<UserRole> UserRoles { get; set; } = [];
@@ -30,11 +27,5 @@ public class AppUser : BaseEntity
     public ICollection<UserClaim> Claims { get; set; } = [];
     public ICollection<UserModuleAccess> ModuleAccesses { get; set; } = [];
     public ICollection<UserPageAccess> PageAccesses { get; set; } = [];
-
-    public void AssignEmployeeId(string? employeeId)
-    {
-        if (!string.IsNullOrEmpty(EmployeeId))
-            throw new InvalidOperationException("EmployeeId is immutable once set.");
-        EmployeeId = employeeId;
-    }
+    public ICollection<TenantUser> TenantUsers { get; set; } = [];
 }

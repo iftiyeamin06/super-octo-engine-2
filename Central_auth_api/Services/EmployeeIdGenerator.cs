@@ -51,11 +51,11 @@ public class EmployeeIdGenerator : IEmployeeIdGenerator
         // digits sort after shorter ones ("EMP-100" after "EMP-99") which
         // gives correct numeric ordering even if the column contains
         // irregularly-padded legacy values.
-        var lastId = await _db.AppUsers
-            .Where(u => u.TenantId == tenantId && u.EmployeeId != null)
-            .OrderByDescending(u => u.EmployeeId!.Length)
-            .ThenByDescending(u => u.EmployeeId)
-            .Select(u => u.EmployeeId)
+        var lastId = await _db.TenantUsers
+            .Where(tu => tu.TenantId == tenantId && tu.EmployeeId != null)
+            .OrderByDescending(tu => tu.EmployeeId!.Length)
+            .ThenByDescending(tu => tu.EmployeeId)
+            .Select(tu => tu.EmployeeId)
             .FirstOrDefaultAsync(ct);
 
         return ComputeNextId(lastId);
