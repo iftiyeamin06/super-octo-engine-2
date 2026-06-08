@@ -170,58 +170,69 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
             .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
             .ToList();
 
-        if (entries.Count > 0)
+        if (entries.Count == 0)
+            return await base.SaveChangesAsync(cancellationToken);
+
+        var httpCtx = httpContextAccessor.HttpContext;
+        var ip = httpCtx?.Connection.RemoteIpAddress?.ToString();
+        var uidClaim = httpCtx?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        long? currentUserId = uidClaim is not null && long.TryParse(uidClaim, out var id) ? id : null;
+
+        var pendingAudits = new List<(AuditHistory Audit, EntityEntry<BaseEntity> Entry)>();
+
+        foreach (var entry in entries)
         {
-            var httpCtx = httpContextAccessor.HttpContext;
-            var ip = httpCtx?.Connection.RemoteIpAddress?.ToString();
-            var uidClaim = httpCtx?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            long? currentUserId = uidClaim is not null && long.TryParse(uidClaim, out var id) ? id : null;
+            var entityName = entry.Entity.GetType().Name;
+            if (_excludedEntities.Contains(entityName))
+                continue;
 
-            foreach (var entry in entries)
+            var actionType = entry.State switch
             {
-                var entityName = entry.Entity.GetType().Name;
-                if (_excludedEntities.Contains(entityName))
-                    continue;
+                EntityState.Added => "Create",
+                EntityState.Deleted => "Delete",
+                EntityState.Modified when IsSoftDelete(entry) => "Delete",
+                EntityState.Modified when IsRestore(entry) => "Restore",
+                _ => "Update"
+            };
 
-                var actionType = entry.State switch
-                {
-                    EntityState.Added => "Create",
-                    EntityState.Deleted => "Delete",
-                    EntityState.Modified when IsSoftDelete(entry) => "Delete",
-                    EntityState.Modified when IsRestore(entry) => "Restore",
-                    _ => "Update"
-                };
+            var oldVals = entry.State is EntityState.Modified or EntityState.Deleted
+                ? SerializeProps(entry.OriginalValues) : null;
 
-                var oldVals = entry.State is EntityState.Modified or EntityState.Deleted
-                    ? SerializeProps(entry.OriginalValues) : null;
+            var newVals = entry.State is EntityState.Added or EntityState.Modified
+                ? SerializeProps(entry.CurrentValues) : null;
 
-                var newVals = entry.State is EntityState.Added or EntityState.Modified
-                    ? SerializeProps(entry.CurrentValues) : null;
+            var audit = new AuditHistory
+            {
+                ActionType = actionType,
+                EntityName = entityName,
+                EntityKey = "", // placeholder; real ID read after base save
+                OldValues = oldVals,
+                NewValues = newVals,
+                IpAddress = ip,
+                AppUserId = currentUserId,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            };
 
-                var entityKey = entry.Property("Id").CurrentValue?.ToString() ?? "";
+            var tid = entry.Properties.FirstOrDefault(p => p.Metadata.Name == "TenantId");
+            if (tid?.CurrentValue is long t)
+                audit.TenantId = t;
 
-                var audit = new AuditHistory
-                {
-                    ActionType = actionType,
-                    EntityName = entityName,
-                    EntityKey = entityKey,
-                    OldValues = oldVals,
-                    NewValues = newVals,
-                    IpAddress = ip,
-                    AppUserId = currentUserId,
-                    CreatedAt = DateTime.UtcNow,
-                    IsActive = true
-                };
-
-                var tid = entry.Properties.FirstOrDefault(p => p.Metadata.Name == "TenantId");
-                if (tid?.CurrentValue is long t)
-                    audit.TenantId = t;
-
-                AuditHistories.Add(audit);
-            }
+            pendingAudits.Add((audit, entry));
         }
 
-        return await base.SaveChangesAsync(cancellationToken);
+        // Save entities first so new ones get real DB-generated IDs
+        var result = await base.SaveChangesAsync(cancellationToken);
+
+        // Now the real ID is available on each entity
+        foreach (var (audit, entry) in pendingAudits)
+        {
+            audit.EntityKey = entry.Property("Id").CurrentValue?.ToString() ?? "";
+            AuditHistories.Add(audit);
+        }
+
+        await base.SaveChangesAsync(cancellationToken);
+        return result;
     }
 
     private static bool IsSoftDelete(EntityEntry<BaseEntity> e)

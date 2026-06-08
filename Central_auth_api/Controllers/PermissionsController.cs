@@ -26,7 +26,7 @@ public class PermissionsController(CentralAuthDbContext db) : ControllerBase
             .Select(p => p.GroupName!).Distinct().OrderBy(g => g).ToListAsync();
 
     [HttpPost]
-    public async Task<ActionResult> Create([FromBody] PermissionDto dto)
+    public async Task<ActionResult> Create([FromBody] CreatePermissionDto dto)
     {
         var perm = new Permission { Code = dto.Code, Name = dto.Name, Description = dto.Description, GroupName = dto.GroupName };
         db.Permissions.Add(perm);

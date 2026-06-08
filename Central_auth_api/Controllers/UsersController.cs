@@ -11,6 +11,41 @@ namespace CentralAuth.Api.Controllers;
 [Route("api/[controller]")]
 public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator employeeIdGenerator) : ControllerBase
 {
+    [HttpGet("me/modules")]
+    public async Task<IActionResult> GetMyModules()
+    {
+        var uidClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (uidClaim is null || !long.TryParse(uidClaim, out var userId))
+            return Unauthorized(new { message = "Authentication required." });
+
+        var roleModuleIds = await db.UserRoles
+            .Where(ur => ur.AppUserId == userId && ur.IsActive)
+            .SelectMany(ur => ur.Role!.RoleModules)
+            .Where(rm => rm.IsActive)
+            .Select(rm => rm.ModuleId)
+            .Distinct()
+            .ToListAsync();
+
+        var explicitModuleIds = await db.UserModuleAccesses
+            .Where(uma => uma.AppUserId == userId && uma.IsActive)
+            .Select(uma => uma.ModuleId)
+            .ToListAsync();
+
+        var allModuleIds = roleModuleIds.Union(explicitModuleIds).Distinct().ToList();
+
+        var modules = await db.Modules
+            .Where(m => allModuleIds.Contains(m.Id) && m.IsActive)
+            .OrderBy(m => m.SortOrder).ThenBy(m => m.Name)
+            .Select(m => new
+            {
+                m.Id, m.Name, m.Code, m.Route, m.Icon, m.SortOrder,
+                m.ParentId, m.IsActive
+            })
+            .ToListAsync();
+
+        return Ok(modules);
+    }
+
     [HttpGet]
     public async Task<PagedResult<UserListDto>> GetAll(
         [FromQuery] string? search, [FromQuery] string? status,

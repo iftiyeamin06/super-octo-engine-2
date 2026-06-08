@@ -13,6 +13,7 @@ public record RoleCreateDto(string Name, string? Description, long? TenantId, Li
 public record RoleUpdateDto(string Name, string? Description, bool IsActive, List<long> PermissionIds, List<long> ModuleIds);
 
 public record PermissionDto(long Id, string Code, string Name, string? Description, string? GroupName, bool IsSystem, bool IsActive);
+public record CreatePermissionDto(string Code, string Name, string? Description, string? GroupName);
 public record ModuleDto(long Id, string Name, string Code, string Route, string? Icon, int SortOrder, long? ParentId, bool IsActive);
 public record ModuleListItemDto(long Id, string Name, string Code, string Route, bool IsActive, DateTime CreatedAt, DateTime? UpdatedAt);
 public record ModuleDetailDto(long Id, string Name, string Code, long? ParentId, int SortOrder, string? Icon, string Route, bool IsActive);

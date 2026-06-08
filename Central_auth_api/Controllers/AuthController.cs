@@ -4,6 +4,7 @@ using System.Text;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.DTOs;
 using CentralAuth.Api.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -113,6 +114,120 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
 
     public record SetPasswordRequest(string Email, string NewPassword);
 #endif
+
+    [Authorize(AuthenticationSchemes = "ApiKey")]
+    [HttpPost("introspect")]
+    public async Task<IActionResult> Introspect([FromBody] IntrospectRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Token))
+            return BadRequest(new { valid = false, message = "Token is required." });
+
+        try
+        {
+            var jwtCfg = cfg.GetSection("Jwt");
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCfg["Key"]!));
+            var handler = new JwtSecurityTokenHandler();
+            var validationParams = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtCfg["Issuer"],
+                ValidAudience = jwtCfg["Audience"],
+                IssuerSigningKey = key,
+                ClockSkew = TimeSpan.Zero
+            };
+
+            var principal = handler.ValidateToken(req.Token, validationParams, out var _);
+            var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userIdClaim is null || !long.TryParse(userIdClaim, out var userId))
+                return Ok(new IntrospectResponse(false, null, null, null, req.RequiredPermission, false));
+
+            var jti = principal.FindFirst(JwtRegisteredClaimNames.Jti)?.Value ?? "";
+            var isBlacklisted = await db.TokenBlacklists.AnyAsync(t =>
+                t.TokenJti == jti && t.IsActive);
+            if (isBlacklisted)
+                return Ok(new IntrospectResponse(false, null, null, null, req.RequiredPermission, false));
+
+            var user = await db.AppUsers
+                .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+
+            if (user is null)
+                return Ok(new IntrospectResponse(false, null, null, null, req.RequiredPermission, false));
+
+            var permissions = user.UserRoles
+                .Where(ur => ur.Role is not null)
+                .SelectMany(ur => ur.Role!.RolePermissions)
+                .Where(rp => rp.IsActive && rp.Permission is not null)
+                .Select(rp => rp.Permission!.Code)
+                .Distinct()
+                .ToList();
+
+            bool? hasPermission = null;
+            if (!string.IsNullOrWhiteSpace(req.RequiredPermission))
+                hasPermission = permissions.Contains(req.RequiredPermission);
+
+            return Ok(new IntrospectResponse(true, userId, user.Email, permissions, req.RequiredPermission, hasPermission));
+        }
+        catch (SecurityTokenException)
+        {
+            return Ok(new IntrospectResponse(false, null, null, null, req.RequiredPermission, false));
+        }
+    }
+
+    [Authorize(AuthenticationSchemes = "ApiKey")]
+    [HttpPost("check-permission")]
+    public async Task<IActionResult> CheckPermission([FromBody] CheckPermissionRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Token) || string.IsNullOrWhiteSpace(req.PermissionCode))
+            return BadRequest(new { granted = false, message = "Token and permissionCode are required." });
+
+        try
+        {
+            var jwtCfg = cfg.GetSection("Jwt");
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCfg["Key"]!));
+            var handler = new JwtSecurityTokenHandler();
+            var validationParams = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtCfg["Issuer"],
+                ValidAudience = jwtCfg["Audience"],
+                IssuerSigningKey = key,
+                ClockSkew = TimeSpan.Zero
+            };
+
+            var principal = handler.ValidateToken(req.Token, validationParams, out var _);
+            var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userIdClaim is null || !long.TryParse(userIdClaim, out var userId))
+                return Ok(new { granted = false });
+
+            var jti = principal.FindFirst(JwtRegisteredClaimNames.Jti)?.Value ?? "";
+            var isBlacklisted = await db.TokenBlacklists.AnyAsync(t =>
+                t.TokenJti == jti && t.IsActive);
+            if (isBlacklisted)
+                return Ok(new { granted = false });
+
+            var hasPermission = await db.UserRoles
+                .Where(ur => ur.AppUserId == userId && ur.IsActive)
+                .SelectMany(ur => ur.Role!.RolePermissions)
+                .AnyAsync(rp => rp.IsActive && rp.Permission!.Code == req.PermissionCode);
+
+            return Ok(new { granted = hasPermission });
+        }
+        catch (SecurityTokenException)
+        {
+            return Ok(new { granted = false });
+        }
+    }
+
+    public record IntrospectRequest(string Token, string? RequiredPermission);
+    public record IntrospectResponse(bool Valid, long? UserId, string? Email, List<string>? Permissions, string? RequiredPermission, bool? HasPermission);
+    public record CheckPermissionRequest(string Token, string PermissionCode);
 
     private string BuildToken(long userId, string email, IEnumerable<string> roles, IEnumerable<string>? permissions = null)
     {

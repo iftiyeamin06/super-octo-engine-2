@@ -37,17 +37,33 @@ public class ServicesController(CentralAuthDbContext db) : ControllerBase
     }
 
     [HttpPost("{id:long}/api-keys")]
-    public async Task<ActionResult> AddApiKey(long id, [FromBody] ServiceApiKey dto)
+    public async Task<ActionResult> AddApiKey(long id, [FromBody] AddApiKeyRequest dto)
     {
         var svc = await db.Services.FindAsync(id);
         if (svc is null) return NotFound();
+        var rawKey = $"sk-{Guid.NewGuid():N}";
         var key = new ServiceApiKey
         {
-            ServiceId = id, Description = dto.Description, ExpiresAt = dto.ExpiresAt,
-            KeyHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString())
+            ServiceId = id,
+            Description = dto.Description,
+            ExpiresAt = dto.ExpiresAt,
+            KeyHash = BCrypt.Net.BCrypt.HashPassword(rawKey)
         };
         db.ServiceApiKeys.Add(key);
         await db.SaveChangesAsync();
-        return Ok(new { key.Id, key.Description, key.ExpiresAt });
+        return Ok(new { key.Id, key.Description, key.ExpiresAt, apiKey = rawKey });
+    }
+
+    public record AddApiKeyRequest(string? Description, DateTime? ExpiresAt);
+
+    [HttpDelete("{id:long}/api-keys/{keyId:long}")]
+    public async Task<ActionResult> RevokeApiKey(long id, long keyId)
+    {
+        var key = await db.ServiceApiKeys.FirstOrDefaultAsync(k => k.Id == keyId && k.ServiceId == id);
+        if (key is null) return NotFound();
+        key.IsActive = false;
+        key.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return NoContent();
     }
 }
