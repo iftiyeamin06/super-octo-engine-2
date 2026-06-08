@@ -28,7 +28,7 @@ timeout /t 2 /nobreak >nul
 echo  [CentralAuth] Starting API and Frontend...
 echo.
 
-start "CentralAuth API :5089" cmd /k "title CentralAuth API :5089 && dotnet run --project "%API%" --urls http://127.0.0.1:5089 --no-build"
+start "CentralAuth API :5089" cmd /k "title CentralAuth API :5089 && dotnet watch run --project "%API%" --urls http://127.0.0.1:5089"
 
 echo  Waiting for API to be ready...
 set READY=0

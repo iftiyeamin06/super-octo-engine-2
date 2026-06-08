@@ -14,7 +14,7 @@ public class DashboardController(CentralAuthDbContext db) : ControllerBase
     {
         var now = DateTime.UtcNow;
         return new DashboardStatsDto(
-            await db.AppUsers.CountAsync(),
+            await db.AppUsers.CountAsync(u => u.IsActive),
             await db.AppUsers.CountAsync(u => u.IsActive && !u.IsLocked),
             await db.AppUsers.CountAsync(u => u.IsActive && u.IsLocked),
             await db.UserLoginSessions.CountAsync(s => s.IsActive && s.ExpiresAtUtc > now),

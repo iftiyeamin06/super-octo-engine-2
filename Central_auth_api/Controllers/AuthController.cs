@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.DTOs;
+using CentralAuth.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -22,11 +23,37 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
 
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        var audit = new AuditHistory
+        {
+            ActionType = "Login",
+            EntityName = "AppUser",
+            EntityKey = user?.Id.ToString() ?? "",
+            IpAddress = ip,
+            CreatedAt = DateTime.UtcNow,
+            IsActive = true
+        };
+
         if (user is null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+        {
+            audit.ActionType = "Login Failed";
+            db.AuditHistories.Add(audit);
+            await db.SaveChangesAsync();
             return Unauthorized(new { message = "Invalid email or password." });
+        }
 
         if (user.IsLocked)
+        {
+            audit.ActionType = "Login Failed";
+            audit.AppUserId = user.Id;
+            db.AuditHistories.Add(audit);
+            await db.SaveChangesAsync();
             return Unauthorized(new { message = "Account is locked. Contact your administrator." });
+        }
+
+        audit.AppUserId = user.Id;
+        db.AuditHistories.Add(audit);
 
         user.LastLoginAt = DateTime.UtcNow;
         user.FailedLoginAttempts = 0;
@@ -44,7 +71,25 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     }
 
     [HttpPost("logout")]
-    public IActionResult Logout() => Ok(new { message = "Logged out." });
+    public async Task<IActionResult> Logout()
+    {
+        var uidClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (uidClaim is not null && long.TryParse(uidClaim, out var userId))
+        {
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "Logout",
+                EntityName = "AppUser",
+                EntityKey = userId.ToString(),
+                AppUserId = userId,
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            });
+            await db.SaveChangesAsync();
+        }
+        return Ok(new { message = "Logged out." });
+    }
 
 #if DEBUG
     [HttpPost("set-password")]

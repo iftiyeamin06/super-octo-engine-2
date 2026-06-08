@@ -49,7 +49,7 @@ Start-Sleep -Seconds 1
 
 Write-Status "Starting API on http://127.0.0.1:5089 ..."
 $apiProc = Start-Process -FilePath "cmd" `
-    -ArgumentList "/k title CentralAuth API :5089 && dotnet run --project `"$api`" --urls http://127.0.0.1:5089 --no-build" `
+    -ArgumentList "/k title CentralAuth API :5089 && dotnet watch run --project `"$api`" --urls http://127.0.0.1:5089" `
     -WindowStyle Normal `
     -PassThru
 Write-Status "API window opened  (PID $($apiProc.Id))" "Green"

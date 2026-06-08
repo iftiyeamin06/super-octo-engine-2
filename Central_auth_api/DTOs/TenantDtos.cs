@@ -7,4 +7,4 @@ public record TenantListDto(
     int UserCount);
 
 public record TenantCreateDto(string Name, string Code, string? Description, string? ContactEmail, string? LogoUrl, string? SubscriptionPlan, DateTime? SubscriptionExpiresAt);
-public record TenantUpdateDto(string Name, string? Description, string? ContactEmail, string? LogoUrl, string? SubscriptionPlan, DateTime? SubscriptionExpiresAt, bool IsActive);
+public record TenantUpdateDto(string Name, string Code, string? Description, string? ContactEmail, string? LogoUrl, string? SubscriptionPlan, DateTime? SubscriptionExpiresAt, bool IsActive);

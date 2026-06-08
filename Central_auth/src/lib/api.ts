@@ -19,12 +19,14 @@ function handleUnauthorized() {
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getSessionToken();
+  const { headers: extraHeaders, ...rest } = options ?? {};
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(extraHeaders as Record<string, string> | undefined),
     },
-    ...options,
+    ...rest,
   });
   if (res.status === 401) {
     handleUnauthorized();
@@ -134,5 +136,5 @@ export interface ServiceItem { id: number; name: string; code: string; descripti
 export interface ModuleListItem { id: number; name: string; code: string; route: string; isActive: boolean; createdAt: string; updatedAt?: string | null; }
 export interface ModuleDetail { id: number; name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
 export interface ModuleSavePayload { name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
-export interface DepartmentItem { id: number; name: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
+export interface DepartmentItem { id: number; name: string; code: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
 export interface DesignationItem { id: number; name: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }

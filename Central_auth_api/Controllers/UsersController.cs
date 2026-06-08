@@ -30,7 +30,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         q = status switch
         {
-            "active"   => q.Where(u => u.IsActive && !u.IsLocked),
+            "active"   => q.Where(u => u.IsActive),
             "inactive" => q.Where(u => !u.IsActive),
             "locked"   => q.Where(u => u.IsLocked),
             _          => q
@@ -86,6 +86,14 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         if (invalidIds.Count != 0)
             return BadRequest(new { error = $"The following tenant IDs do not exist: [{string.Join(", ", invalidIds)}]" });
 
+        var normalizedEmail = dto.Email.ToUpperInvariant();
+        if (await db.AppUsers.AnyAsync(u => u.NormalizedEmail == normalizedEmail))
+            return BadRequest(new { error = "A user with this email already exists." });
+
+        var normalizedUserName = dto.UserName.ToUpperInvariant();
+        if (await db.AppUsers.AnyAsync(u => u.NormalizedUserName == normalizedUserName))
+            return BadRequest(new { error = "A user with this username already exists." });
+
         // ── Per-tenant serialization ─────────────────────────────────────
         // We wrap ID generation and the INSERT in the SAME transaction.
         // The generator issues SELECT ... FOR UPDATE on auth_tenants row,
@@ -109,7 +117,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         foreach (var tenantId in dto.TenantIds)
         {
-            var employeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId);
+            var employeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId, dto.DepartmentId);
             db.TenantUsers.Add(new TenantUser
             {
                 AppUserId  = user.Id,
@@ -178,7 +186,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
                 }
                 else
                 {
-                    var newEmployeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId);
+                    var newEmployeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId, user.DepartmentId);
                     user.TenantUsers.Add(new TenantUser
                     {
                         AppUserId  = user.Id,
@@ -225,9 +233,25 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
     [HttpDelete("{id:long}")]
     public async Task<ActionResult> Delete(long id)
     {
-        var user = await db.AppUsers.FindAsync(id);
+        var user = await db.AppUsers
+            .Include(u => u.TenantUsers)
+            .Include(u => u.UserRoles)
+            .FirstOrDefaultAsync(u => u.Id == id);
         if (user is null) return NotFound();
         user.IsActive = false; user.UpdatedAt = DateTime.UtcNow;
+
+        foreach (var tu in user.TenantUsers.Where(tu => tu.IsActive))
+        {
+            tu.IsActive = false;
+            tu.UpdatedAt = DateTime.UtcNow;
+        }
+
+        foreach (var ur in user.UserRoles.Where(ur => ur.IsActive))
+        {
+            ur.IsActive = false;
+            ur.UpdatedAt = DateTime.UtcNow;
+        }
+
         await db.SaveChangesAsync();
         return NoContent();
     }

@@ -15,7 +15,7 @@ if (string.IsNullOrWhiteSpace(connStr))
 builder.Services.AddDbContext<CentralAuthDbContext>(opt =>
     opt.UseMySql(connStr, ServerVersion.AutoDetect(connStr)));
 
-builder.Services.Configure<EmployeeIdOptions>(builder.Configuration.GetSection("EmployeeId"));
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IEmployeeIdGenerator, EmployeeIdGenerator>();
 
 var jwtCfg = builder.Configuration.GetSection("Jwt");

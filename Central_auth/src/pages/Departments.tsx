@@ -4,7 +4,7 @@ import Badge from "../components/Badge";
 import { TableSkeleton } from "../components/Skeleton";
 import { api, type DepartmentItem, type TenantListItem } from "../lib/api";
 
-const empty = { name: "", description: "", tenantId: "", isActive: true };
+const empty = { name: "", code: "", description: "", tenantId: "", isActive: true };
 
 export default function Departments() {
   const [items, setItems] = useState<DepartmentItem[]>([]);
@@ -27,7 +27,7 @@ export default function Departments() {
 
   function openCreate() { setForm(empty); setFormError(null); setModal({ open: true }); }
   function openEdit(d: DepartmentItem) {
-    setForm({ name: d.name, description: d.description ?? "", tenantId: d.tenantId ? String(d.tenantId) : "", isActive: d.isActive });
+    setForm({ name: d.name, code: d.code, description: d.description ?? "", tenantId: d.tenantId ? String(d.tenantId) : "", isActive: d.isActive });
     setFormError(null);
     setModal({ open: true, editing: d });
   }
@@ -35,7 +35,7 @@ export default function Departments() {
   async function save() {
     setSaving(true); setFormError(null);
     try {
-      const data = { name: form.name, description: form.description || null, tenantId: form.tenantId ? Number(form.tenantId) : null, isActive: form.isActive };
+      const data = { name: form.name, code: form.code, description: form.description || null, tenantId: form.tenantId ? Number(form.tenantId) : null, isActive: form.isActive };
       if (modal.editing) await api.departments.update(modal.editing.id, data);
       else await api.departments.create(data);
       setModal({ open: false }); load();
@@ -75,14 +75,14 @@ export default function Departments() {
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/30">
               <tr>
-                {["Name", "Description", "Tenant", "Status", "Actions"].map(h => (
+                {["Name", "Code", "Description", "Tenant", "Status", "Actions"].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y">
               {items.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No departments found</td></tr>
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">No departments found</td></tr>
               ) : items.map((d) => (
                 <tr key={d.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3">
@@ -91,6 +91,7 @@ export default function Departments() {
                       <span className="font-medium text-foreground">{d.name}</span>
                     </div>
                   </td>
+                  <td className="px-4 py-3"><code className="text-xs font-mono bg-muted px-2 py-0.5 rounded text-foreground">{d.code}</code></td>
                   <td className="px-4 py-3 text-muted-foreground text-sm">{d.description || "—"}</td>
                   <td className="px-4 py-3">{d.tenantName ? <Badge variant="outline">{d.tenantName}</Badge> : <span className="text-muted-foreground">—</span>}</td>
                   <td className="px-4 py-3">{d.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="outline">Inactive</Badge>}</td>
@@ -120,6 +121,12 @@ export default function Departments() {
                 <label className="block text-xs font-medium text-foreground mb-1">Name *</label>
                 <input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Human Resources"
                   className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-foreground mb-1">Code *</label>
+                <input value={form.code} onChange={(e) => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="e.g. HR"
+                  disabled={!!modal.editing}
+                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1">Description</label>

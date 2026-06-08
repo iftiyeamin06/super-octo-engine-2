@@ -13,12 +13,16 @@ export default function Users() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
 
   const [modal, setModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [roles, setRoles] = useState<RoleListItem[]>([]);
@@ -29,6 +33,7 @@ export default function Users() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setError(null);
     const params: Record<string, string> = {
       page: String(page), pageSize: String(PAGE_SIZE),
       ...(search ? { search } : {}),
@@ -36,7 +41,7 @@ export default function Users() {
     };
     api.users.list(params)
       .then((r) => { setItems(r.items); setTotal(r.totalCount); })
-      .catch(() => {})
+      .catch((e) => { setError(e instanceof Error ? e.message : "Failed to load users"); setItems([]); setTotal(0); })
       .finally(() => setLoading(false));
   }, [page, search, statusFilter]);
 
@@ -109,10 +114,32 @@ export default function Users() {
     load();
   }
 
-  async function deleteUser(id: number) {
-    if (!confirm("Delete this user?")) return;
-    await api.users.delete(id).catch(() => {});
-    load();
+  function confirmDelete(user: UserListItem) {
+    setDeleteTarget(user);
+  }
+
+  function cancelDelete() {
+    setDeleteTarget(null);
+  }
+
+  async function executeDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.users.delete(deleteTarget.id);
+      const deletedId = deleteTarget.id;
+      setDeleteTarget(null);
+      setItems(prev => prev.filter(u => u.id !== deletedId));
+      setTotal(prev => prev - 1);
+      if (items.length === 1 && page > 1) {
+        setPage(p => p - 1);
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete user");
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -152,6 +179,9 @@ export default function Users() {
           </button>
         </div>
       </div>
+
+      {/* Error */}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
 
       {/* Table */}
       {loading ? <TableSkeleton rows={8} cols={9} /> : (
@@ -212,7 +242,8 @@ export default function Users() {
                           className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                           {u.isLocked ? <UserCheck className="w-3.5 h-3.5 text-emerald-500" /> : <UserX className="w-3.5 h-3.5 text-orange-500" />}
                         </button>
-                        <button onClick={() => deleteUser(u.id)}
+                        <button onClick={() => confirmDelete(u)}
+                          title="Delete"
                           className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -256,6 +287,34 @@ export default function Users() {
                 onSubmit={save}
                 onCancel={closeModal}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-card border rounded-xl w-full max-w-sm shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h2 className="text-sm font-semibold">Delete User</h2>
+              <button onClick={cancelDelete} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Are you sure you want to delete <span className="font-medium text-foreground">{deleteTarget.firstName} {deleteTarget.lastName}</span>?
+                This action cannot be undone.
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={cancelDelete} disabled={deleting}
+                  className="px-4 py-2 text-sm rounded-lg border bg-background hover:bg-muted transition-colors">
+                  Cancel
+                </button>
+                <button onClick={executeDelete} disabled={deleting}
+                  className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50">
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

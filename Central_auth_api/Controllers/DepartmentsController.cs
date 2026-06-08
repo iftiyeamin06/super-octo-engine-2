@@ -15,14 +15,14 @@ public class DepartmentsController(CentralAuthDbContext db) : ControllerBase
         var q = db.Departments.Include(d => d.Tenant).AsQueryable();
         if (tenantId.HasValue) q = q.Where(d => d.TenantId == tenantId);
         return Ok(await q.OrderBy(d => d.Name)
-            .Select(d => new { d.Id, d.Name, d.Description, d.IsActive, d.TenantId, TenantName = d.Tenant != null ? d.Tenant.Name : null, d.CreatedAt })
+            .Select(d => new { d.Id, d.Name, d.Code, d.Description, d.IsActive, d.TenantId, TenantName = d.Tenant != null ? d.Tenant.Name : null, d.CreatedAt })
             .ToListAsync());
     }
 
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] Department dto)
     {
-        var dept = new Department { TenantId = dto.TenantId, Name = dto.Name, Description = dto.Description };
+        var dept = new Department { TenantId = dto.TenantId, Name = dto.Name, Code = dto.Code.ToUpperInvariant(), Description = dto.Description };
         db.Departments.Add(dept);
         await db.SaveChangesAsync();
         return CreatedAtAction(nameof(GetAll), new { id = dept.Id }, new { dept.Id });

@@ -1,9 +1,13 @@
+using System.Security.Claims;
+using System.Text.Json;
 using CentralAuth.Api.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace CentralAuth.Api.Data;
 
-public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options) : DbContext(options)
+public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options, IHttpContextAccessor httpContextAccessor) : DbContext(options)
 {
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<AppUser> AppUsers => Set<AppUser>();
@@ -67,6 +71,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<TenantUser>().HasIndex(tu => new { tu.AppUserId, tu.TenantId }).IsUnique();
         mb.Entity<Role>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         mb.Entity<Department>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+        mb.Entity<Department>().HasIndex(e => new { e.TenantId, e.Code }).IsUnique();
         mb.Entity<Designation>().HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         mb.Entity<Permission>().HasIndex(e => e.Code).IsUnique();
         mb.Entity<Module>().HasIndex(e => e.Code).IsUnique();
@@ -138,5 +143,101 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<Department>().HasOne(e => e.Tenant).WithMany(e => e.Departments).HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
         mb.Entity<Designation>().HasOne(e => e.Tenant).WithMany(e => e.Designations).HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
         mb.Entity<Role>().HasOne(e => e.Tenant).WithMany(e => e.Roles).HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static readonly HashSet<string> _excludedProps = new(StringComparer.Ordinal)
+    {
+        nameof(AppUser.PasswordHash), nameof(AppUser.NormalizedEmail), nameof(AppUser.NormalizedUserName),
+        "ConcurrencyStamp", "Timestamp"
+    };
+
+    private static readonly HashSet<string> _excludedEntities = new(StringComparer.Ordinal)
+    {
+        nameof(UserLoginSession), nameof(TokenBlacklist), nameof(PasswordResetToken),
+        nameof(OtpVerification), nameof(ServiceApiKey), nameof(AuditHistory),
+        nameof(UserDatatablePreference)
+    };
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        var entries = ChangeTracker.Entries<BaseEntity>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .ToList();
+
+        if (entries.Count > 0)
+        {
+            var httpCtx = httpContextAccessor.HttpContext;
+            var ip = httpCtx?.Connection.RemoteIpAddress?.ToString();
+            var uidClaim = httpCtx?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            long? currentUserId = uidClaim is not null && long.TryParse(uidClaim, out var id) ? id : null;
+
+            foreach (var entry in entries)
+            {
+                var entityName = entry.Entity.GetType().Name;
+                if (_excludedEntities.Contains(entityName))
+                    continue;
+
+                var actionType = entry.State switch
+                {
+                    EntityState.Added => "Create",
+                    EntityState.Deleted => "Delete",
+                    EntityState.Modified when IsSoftDelete(entry) => "Delete",
+                    EntityState.Modified when IsRestore(entry) => "Restore",
+                    _ => "Update"
+                };
+
+                var oldVals = entry.State is EntityState.Modified or EntityState.Deleted
+                    ? SerializeProps(entry.OriginalValues) : null;
+
+                var newVals = entry.State is EntityState.Added or EntityState.Modified
+                    ? SerializeProps(entry.CurrentValues) : null;
+
+                var entityKey = entry.Property("Id").CurrentValue?.ToString() ?? "";
+
+                var audit = new AuditHistory
+                {
+                    ActionType = actionType,
+                    EntityName = entityName,
+                    EntityKey = entityKey,
+                    OldValues = oldVals,
+                    NewValues = newVals,
+                    IpAddress = ip,
+                    AppUserId = currentUserId,
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true
+                };
+
+                var tid = entry.Properties.FirstOrDefault(p => p.Metadata.Name == "TenantId");
+                if (tid?.CurrentValue is long t)
+                    audit.TenantId = t;
+
+                AuditHistories.Add(audit);
+            }
+        }
+
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool IsSoftDelete(EntityEntry<BaseEntity> e)
+    {
+        var p = e.Property(nameof(BaseEntity.IsActive));
+        return p.OriginalValue is true && p.CurrentValue is false;
+    }
+
+    private static bool IsRestore(EntityEntry<BaseEntity> e)
+    {
+        var p = e.Property(nameof(BaseEntity.IsActive));
+        return p.OriginalValue is false && p.CurrentValue is true;
+    }
+
+    private static string? SerializeProps(PropertyValues values)
+    {
+        var dict = new Dictionary<string, object?>();
+        foreach (var prop in values.Properties)
+        {
+            if (_excludedProps.Contains(prop.Name)) continue;
+            dict[prop.Name] = values[prop];
+        }
+        return dict.Count > 0 ? JsonSerializer.Serialize(dict) : null;
     }
 }

@@ -51,7 +51,7 @@ public class TenantsController(CentralAuthDbContext db) : ControllerBase
     {
         var tenant = await db.Tenants.FindAsync(id);
         if (tenant is null) return NotFound();
-        tenant.Name = dto.Name; tenant.Description = dto.Description;
+        tenant.Name = dto.Name; tenant.Code = dto.Code.ToUpperInvariant(); tenant.Description = dto.Description;
         tenant.ContactEmail = dto.ContactEmail; tenant.LogoUrl = dto.LogoUrl;
         tenant.SubscriptionPlan = dto.SubscriptionPlan;
         tenant.SubscriptionExpiresAt = dto.SubscriptionExpiresAt;
