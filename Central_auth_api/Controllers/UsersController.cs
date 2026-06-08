@@ -149,6 +149,9 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         user.DesignationId = dto.DesignationId; user.IsActive = dto.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
 
+        if (!string.IsNullOrWhiteSpace(dto.Password))
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+
         // ── Replace tenant links with the desired set ───────────────────
         // Semantics: dto.TenantIds is the COMPLETE desired set of tenants
         // this user should belong to. Anything not in the array is

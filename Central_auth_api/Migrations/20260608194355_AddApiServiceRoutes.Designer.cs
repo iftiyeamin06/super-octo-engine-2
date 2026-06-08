@@ -3,6 +3,7 @@ using System;
 using CentralAuth.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CentralAuth.Api.Migrations
 {
     [DbContext(typeof(CentralAuthDbContext))]
-    partial class CentralAuthDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260608194355_AddApiServiceRoutes")]
+    partial class AddApiServiceRoutes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -80,10 +83,10 @@ namespace CentralAuth.Api.Migrations
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
-                    b.Property<long>("DepartmentId")
+                    b.Property<long?>("DepartmentId")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("DesignationId")
+                    b.Property<long?>("DesignationId")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Email")
@@ -1179,14 +1182,12 @@ namespace CentralAuth.Api.Migrations
                     b.HasOne("CentralAuth.Api.Models.Department", "Department")
                         .WithMany("Users")
                         .HasForeignKey("DepartmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("CentralAuth.Api.Models.Designation", "Designation")
                         .WithMany("Users")
                         .HasForeignKey("DesignationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Department");
 

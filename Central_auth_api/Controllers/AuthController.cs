@@ -20,7 +20,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         var normalized = req.Email.ToUpperInvariant();
         var user = await db.AppUsers
             .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
-            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -60,7 +60,14 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         await db.SaveChangesAsync();
 
         var roles = user.UserRoles.Where(ur => ur.Role is not null).Select(ur => ur.Role!.Name).ToList();
-        var token = BuildToken(user.Id, user.Email, roles);
+        var permissions = user.UserRoles
+            .Where(ur => ur.Role is not null)
+            .SelectMany(ur => ur.Role!.RolePermissions)
+            .Where(rp => rp.IsActive && rp.Permission is not null)
+            .Select(rp => rp.Permission!.Code)
+            .Distinct()
+            .ToList();
+        var token = BuildToken(user.Id, user.Email, roles, permissions);
         var expiry = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
 
         return Ok(new LoginResponse(
@@ -107,7 +114,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     public record SetPasswordRequest(string Email, string NewPassword);
 #endif
 
-    private string BuildToken(long userId, string email, IEnumerable<string> roles)
+    private string BuildToken(long userId, string email, IEnumerable<string> roles, IEnumerable<string>? permissions = null)
     {
         var jwtCfg = cfg.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCfg["Key"]!));
@@ -120,6 +127,8 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+        if (permissions is not null)
+            claims.AddRange(permissions.Select(p => new Claim("permission", p)));
 
         var token = new JwtSecurityToken(
             issuer: jwtCfg["Issuer"],

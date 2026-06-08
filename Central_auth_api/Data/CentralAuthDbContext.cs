@@ -30,6 +30,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<OtpVerification> OtpVerifications => Set<OtpVerification>();
     public DbSet<Service> Services => Set<Service>();
+    public DbSet<ApiServiceRoute> ApiServiceRoutes => Set<ApiServiceRoute>();
     public DbSet<ServiceApiKey> ServiceApiKeys => Set<ServiceApiKey>();
     public DbSet<AuditHistory> AuditHistories => Set<AuditHistory>();
     public DbSet<UserDatatablePreference> UserDatatablePreferences => Set<UserDatatablePreference>();
@@ -104,8 +105,8 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
             .OnDelete(DeleteBehavior.Restrict);
 
         // AppUser relationships
-        mb.Entity<AppUser>().HasOne(e => e.Department).WithMany(e => e.Users).HasForeignKey(e => e.DepartmentId).OnDelete(DeleteBehavior.SetNull);
-        mb.Entity<AppUser>().HasOne(e => e.Designation).WithMany(e => e.Users).HasForeignKey(e => e.DesignationId).OnDelete(DeleteBehavior.SetNull);
+        mb.Entity<AppUser>().HasOne(e => e.Department).WithMany(e => e.Users).HasForeignKey(e => e.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+        mb.Entity<AppUser>().HasOne(e => e.Designation).WithMany(e => e.Users).HasForeignKey(e => e.DesignationId).OnDelete(DeleteBehavior.Restrict);
 
         // Junction tables
         mb.Entity<UserRole>().HasOne(e => e.AppUser).WithMany(e => e.UserRoles).HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
@@ -133,6 +134,11 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
 
         // Services
         mb.Entity<ServiceApiKey>().HasOne(e => e.Service).WithMany(e => e.ApiKeys).HasForeignKey(e => e.ServiceId).OnDelete(DeleteBehavior.Cascade);
+
+        // ApiServiceRoute
+        mb.Entity<ApiServiceRoute>().ToTable("auth_api_service_routes");
+        mb.Entity<ApiServiceRoute>().HasIndex(e => new { e.HttpMethod, e.RoutePattern }).IsUnique();
+        mb.Entity<ApiServiceRoute>().HasOne(e => e.Service).WithMany(e => e.ApiServiceRoutes).HasForeignKey(e => e.ServiceId).OnDelete(DeleteBehavior.Restrict);
 
         // Audit
         mb.Entity<AuditHistory>().HasOne(e => e.Tenant).WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.SetNull);

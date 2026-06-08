@@ -1,5 +1,6 @@
 using System.Text;
 using CentralAuth.Api.Data;
+using CentralAuth.Api.Filters;
 using CentralAuth.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -81,6 +82,7 @@ builder.Services.AddCors(opt =>
               .AllowAnyMethod()
               .AllowCredentials()));
 
+builder.Services.AddMemoryCache();
 builder.Services.AddControllers()
     .AddJsonOptions(opt =>
         opt.JsonSerializerOptions.DefaultIgnoreCondition =
@@ -97,6 +99,7 @@ if (app.Environment.IsDevelopment())
 app.UseCors("ReactUI");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<DynamicPermissionMiddleware>();
 app.MapControllers();
 app.MapGet("/health", () => new { status = "ok", service = "CentralAuth.Api", timestamp = DateTime.UtcNow });
 

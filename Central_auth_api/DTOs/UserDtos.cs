@@ -13,10 +13,10 @@ public record UserListDto(
 public record UserCreateDto(
     List<long> TenantIds, string FirstName, string LastName,
     string Email, string UserName, string Password,
-    string? PhoneNumber, long? DepartmentId, long? DesignationId,
+    string? PhoneNumber, long DepartmentId, long DesignationId,
     List<long> RoleIds);
 
 public record UserUpdateDto(
     List<long>? TenantIds, string FirstName, string LastName, string? PhoneNumber,
-    long? DepartmentId, long? DesignationId, bool IsActive,
-    List<long> RoleIds);
+    long DepartmentId, long DesignationId, bool IsActive,
+    List<long> RoleIds, string? Password = null);

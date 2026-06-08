@@ -8,4 +8,5 @@ public class Service : BaseEntity
     public string? BaseUrl { get; set; }
 
     public ICollection<ServiceApiKey> ApiKeys { get; set; } = [];
+    public ICollection<ApiServiceRoute> ApiServiceRoutes { get; set; } = [];
 }
