@@ -1,8 +1,10 @@
+using CentralAuth.Api.Filters;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CentralAuth.Api.Controllers;
 
 [ApiController]
+[ServiceFilter(typeof(DynamicPermissionFilter))]
 public class TestEndpointsController : ControllerBase
 {
     [HttpGet("/api/receipts")]
@@ -25,5 +27,29 @@ public class TestEndpointsController : ControllerBase
             users = 42,
             source = "TestEndpointsController"
         });
+    }
+
+    [HttpGet("/api/fabrics")]
+    public IActionResult GetFabrics()
+    {
+        return Ok(new { module = "Fabrics", status = "ok" });
+    }
+
+    [HttpGet("/api/orders")]
+    public IActionResult GetOrders()
+    {
+        return Ok(new { module = "Orders", status = "ok" });
+    }
+
+    [HttpGet("/api/inventory")]
+    public IActionResult GetInventory()
+    {
+        return Ok(new { module = "Inventory", status = "ok" });
+    }
+
+    [HttpGet("/api/reports")]
+    public IActionResult GetReports()
+    {
+        return Ok(new { module = "Reports", status = "ok" });
     }
 }

@@ -84,6 +84,7 @@ builder.Services.AddCors(opt =>
               .AllowCredentials()));
 
 builder.Services.AddMemoryCache();
+builder.Services.AddScoped<DynamicPermissionFilter>();
 builder.Services.AddControllers()
     .AddJsonOptions(opt =>
         opt.JsonSerializerOptions.DefaultIgnoreCondition =
