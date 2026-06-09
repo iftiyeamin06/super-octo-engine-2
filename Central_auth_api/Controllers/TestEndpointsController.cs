@@ -52,4 +52,10 @@ public class TestEndpointsController : ControllerBase
     {
         return Ok(new { module = "Reports", status = "ok" });
     }
+
+    [HttpGet("/api/hr")]
+    public IActionResult GetHr()
+    {
+        return Ok(new { module = "HR", status = "ok" });
+    }
 }

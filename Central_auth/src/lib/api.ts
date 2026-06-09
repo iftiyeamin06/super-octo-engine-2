@@ -74,6 +74,8 @@ export const api = {
   permissions: {
     list: (group?: string)           => req<Permission[]>(`/permissions${group ? `?group=${group}` : ""}`),
     groups: ()                       => req<string[]>("/permissions/groups"),
+    create: (data: CreatePermissionPayload) => req<{id: number}>("/permissions", { method: "POST", body: JSON.stringify(data) }),
+    remove: (id: number)             => req<void>(`/permissions/${id}`, { method: "DELETE" }),
   },
   sessions: {
     list: (params?: Record<string, string>) =>
@@ -127,6 +129,7 @@ export interface UserCreatePayload { firstName: string; lastName: string; email:
 export interface RoleListItem { id: number; name: string; description?: string; isActive: boolean; isSystem: boolean; tenantId?: number; tenantName?: string; userCount: number; permissionCount: number; createdAt: string; }
 export interface RoleDetail { id: number; name: string; description?: string; isActive: boolean; isSystem: boolean; permissions: Permission[]; modules: Module[]; }
 export interface Permission { id: number; code: string; name: string; description?: string; groupName?: string; isSystem: boolean; isActive: boolean; }
+export interface CreatePermissionPayload { code: string; name: string; description?: string | null; groupName?: string | null; }
 export interface Module { id: number; name: string; code: string; route: string; icon?: string; sortOrder: number; parentId?: number; isActive: boolean; }
 export interface TenantListItem { id: number; name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string; isActive: boolean; createdAt: string; userCount: number; }
 export interface TenantPayload { name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string | null; isActive: boolean; }

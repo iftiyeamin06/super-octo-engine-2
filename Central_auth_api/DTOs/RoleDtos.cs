@@ -9,8 +9,8 @@ public record RoleDetailDto(
     long Id, string Name, string? Description, bool IsActive, bool IsSystem,
     long? TenantId, List<PermissionDto> Permissions, List<ModuleDto> Modules);
 
-public record RoleCreateDto(string Name, string? Description, long? TenantId, List<long> PermissionIds, List<long> ModuleIds);
-public record RoleUpdateDto(string Name, string? Description, bool IsActive, List<long> PermissionIds, List<long> ModuleIds);
+public record RoleCreateDto(string Name, string? Description, long? TenantId, List<long> PermissionIds, List<long>? ModuleIds);
+public record RoleUpdateDto(string Name, string? Description, bool IsActive, List<long> PermissionIds, List<long>? ModuleIds);
 
 public record PermissionDto(long Id, string Code, string Name, string? Description, string? GroupName, bool IsSystem, bool IsActive);
 public record CreatePermissionDto(string Code, string Name, string? Description, string? GroupName);

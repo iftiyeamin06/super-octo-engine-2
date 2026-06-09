@@ -62,7 +62,7 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
 
         foreach (var pid in dto.PermissionIds)
             db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
-        foreach (var mid in dto.ModuleIds)
+        foreach (var mid in dto.ModuleIds ?? [])
             db.RoleModules.Add(new RoleModule { RoleId = role.Id, ModuleId = mid });
 
         await db.SaveChangesAsync();
@@ -88,7 +88,7 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
 
         foreach (var pid in dto.PermissionIds)
             db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
-        foreach (var mid in dto.ModuleIds)
+        foreach (var mid in dto.ModuleIds ?? [])
             db.RoleModules.Add(new RoleModule { RoleId = role.Id, ModuleId = mid });
 
         await db.SaveChangesAsync();
