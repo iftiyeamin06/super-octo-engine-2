@@ -93,11 +93,18 @@ export const api = {
     update: (id: number, data: unknown) => req(`/services/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     addApiKey: (id: number, data: unknown) => req<{ id: number; description: string; expiresAt?: string }>(`/services/${id}/api-keys`, { method: "POST", body: JSON.stringify(data) }),
   },
+  apiServiceRoutes: {
+    list: (serviceId?: number) => req<ApiServiceRoute[]>("/api-service-routes" + (serviceId !== undefined ? `?serviceId=${serviceId}` : "")),
+    create: (data: ApiServiceRouteCreatePayload) => req<{ id: number }>("/api-service-routes", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: number, data: unknown) => req<void>(`/api-service-routes/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id: number) => req<void>(`/api-service-routes/${id}`, { method: "DELETE" }),
+  },
   modules: {
     list: () => req<ModuleListItem[]>("/modules"),
     detail: (id: number) => req<ModuleDetail>(`/modules/${id}`),
     create: (data: ModuleSavePayload) => req<void>("/modules", { method: "POST", body: JSON.stringify(data) }),
     update: (id: number, data: ModuleSavePayload) => req<void>(`/modules/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id: number) => req<void>(`/modules/${id}`, { method: "DELETE" }),
   },
   departments: {
     list: (tenantId?: number) => req<DepartmentItem[]>(`/departments${tenantId ? `?tenantId=${tenantId}` : ""}`),
@@ -141,3 +148,12 @@ export interface ModuleDetail { id: number; name: string; code: string; parentId
 export interface ModuleSavePayload { name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
 export interface DepartmentItem { id: number; name: string; code: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
 export interface DesignationItem { id: number; name: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
+export interface ApiServiceRoute {
+  id: number; serviceId?: number; serviceName?: string;
+  httpMethod: string; routePattern: string; requiredPermissionCode: string;
+  description?: string; isActive: boolean; createdAt: string;
+}
+export interface ApiServiceRouteCreatePayload {
+  serviceId?: number; httpMethod: string; routePattern: string;
+  requiredPermissionCode: string; description?: string | null;
+}
