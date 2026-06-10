@@ -6,6 +6,7 @@ import UserForm from "../components/UserForm";
 import { type UserFormValues } from "../components/userFormModel";
 import { cn } from "../lib/utils";
 import { api, type UserListItem, type TenantListItem, type RoleListItem, type DepartmentItem, type DesignationItem } from "../lib/api";
+import { getSession, clearAccessibleModulesCache } from "../lib/auth";
 
 export default function Users() {
   const [items, setItems] = useState<UserListItem[]>([]);
@@ -101,8 +102,13 @@ export default function Users() {
           roleIds,
         });
       }
+      clearAccessibleModulesCache();
       closeModal();
       load();
+      const session = getSession();
+      if (editingUser && session && editingUser.id === session.user.id) {
+        setError("Your session has been updated. Please log out and log back in for changes to take full effect.");
+      }
     } catch (e: unknown) {
       setFormError(e instanceof Error ? e.message : editingUser ? "Failed to update user" : "Failed to create user");
     } finally { setSaving(false); }

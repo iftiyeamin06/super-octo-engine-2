@@ -3,6 +3,7 @@ using System;
 using CentralAuth.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CentralAuth.Api.Migrations
 {
     [DbContext(typeof(CentralAuthDbContext))]
-    partial class CentralAuthDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260610155308_AddModulePermissions")]
+    partial class AddModulePermissions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -41,9 +44,6 @@ namespace CentralAuth.Api.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<long>("ModuleId")
-                        .HasColumnType("bigint");
-
                     b.Property<string>("RequiredPermissionCode")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -51,6 +51,9 @@ namespace CentralAuth.Api.Migrations
                     b.Property<string>("RoutePattern")
                         .IsRequired()
                         .HasColumnType("varchar(255)");
+
+                    b.Property<long?>("ServiceId")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime(6)");
@@ -60,7 +63,7 @@ namespace CentralAuth.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ModuleId");
+                    b.HasIndex("ServiceId");
 
                     b.HasIndex("HttpMethod", "RoutePattern")
                         .IsUnique();
@@ -201,12 +204,17 @@ namespace CentralAuth.Api.Migrations
                     b.Property<string>("OldValues")
                         .HasColumnType("longtext");
 
+                    b.Property<long?>("ServiceId")
+                        .HasColumnType("bigint");
+
                     b.Property<long?>("TenantId")
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
                     b.HasIndex("AppUserId");
+
+                    b.HasIndex("ServiceId");
 
                     b.HasIndex("TenantId");
 
@@ -721,6 +729,96 @@ namespace CentralAuth.Api.Migrations
                     b.ToTable("auth_rolepermissions", (string)null);
                 });
 
+            modelBuilder.Entity("CentralAuth.Api.Models.Service", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("BaseUrl")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("longtext");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("auth_services", (string)null);
+                });
+
+            modelBuilder.Entity("CentralAuth.Api.Models.ServiceApiKey", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long>("ServiceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KeyHash")
+                        .IsUnique();
+
+                    b.HasIndex("ServiceId");
+
+                    b.ToTable("auth_service_api_keys", (string)null);
+                });
+
             modelBuilder.Entity("CentralAuth.Api.Models.Tenant", b =>
                 {
                     b.Property<long>("Id")
@@ -885,7 +983,7 @@ namespace CentralAuth.Api.Migrations
 
                     b.HasIndex("AppUserId");
 
-                    b.ToTable("UserClaims");
+                    b.ToTable("auth_user_claims", (string)null);
                 });
 
             modelBuilder.Entity("CentralAuth.Api.Models.UserDatatablePreference", b =>
@@ -1108,13 +1206,12 @@ namespace CentralAuth.Api.Migrations
 
             modelBuilder.Entity("CentralAuth.Api.Models.ApiServiceRoute", b =>
                 {
-                    b.HasOne("CentralAuth.Api.Models.Module", "Module")
+                    b.HasOne("CentralAuth.Api.Models.Service", "Service")
                         .WithMany("ApiServiceRoutes")
-                        .HasForeignKey("ModuleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
-                    b.Navigation("Module");
+                    b.Navigation("Service");
                 });
 
             modelBuilder.Entity("CentralAuth.Api.Models.AppUser", b =>
@@ -1143,12 +1240,19 @@ namespace CentralAuth.Api.Migrations
                         .HasForeignKey("AppUserId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("CentralAuth.Api.Models.Service", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("CentralAuth.Api.Models.Tenant", "Tenant")
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("AppUser");
+
+                    b.Navigation("Service");
 
                     b.Navigation("Tenant");
                 });
@@ -1292,6 +1396,17 @@ namespace CentralAuth.Api.Migrations
                     b.Navigation("Permission");
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("CentralAuth.Api.Models.ServiceApiKey", b =>
+                {
+                    b.HasOne("CentralAuth.Api.Models.Service", "Service")
+                        .WithMany("ApiKeys")
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Service");
                 });
 
             modelBuilder.Entity("CentralAuth.Api.Models.TenantUser", b =>
@@ -1440,8 +1555,6 @@ namespace CentralAuth.Api.Migrations
 
             modelBuilder.Entity("CentralAuth.Api.Models.Module", b =>
                 {
-                    b.Navigation("ApiServiceRoutes");
-
                     b.Navigation("Children");
 
                     b.Navigation("ModulePermissions");
@@ -1474,6 +1587,13 @@ namespace CentralAuth.Api.Migrations
                     b.Navigation("RolePermissions");
 
                     b.Navigation("UserRoles");
+                });
+
+            modelBuilder.Entity("CentralAuth.Api.Models.Service", b =>
+                {
+                    b.Navigation("ApiKeys");
+
+                    b.Navigation("ApiServiceRoutes");
                 });
 
             modelBuilder.Entity("CentralAuth.Api.Models.Tenant", b =>

@@ -3,6 +3,7 @@ using System;
 using CentralAuth.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CentralAuth.Api.Migrations
 {
     [DbContext(typeof(CentralAuthDbContext))]
-    partial class CentralAuthDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260610163807_RemoveServicesAddModuleIdToRoutes")]
+    partial class RemoveServicesAddModuleIdToRoutes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

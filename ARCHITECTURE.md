@@ -14,6 +14,7 @@ Multi-tenant Role-Based Access Control system built with .NET 8 Web API + React 
 6. [The Client-Side Route Guard](#6-the-client-side-route-guard)
 7. [Complete Data Flow Diagram](#7-complete-data-flow-diagram)
 8. [Route Protection Matrix](#8-route-protection-matrix)
+9. [Verified Test Results](#9-verified-test-results)
 
 ---
 
@@ -28,9 +29,7 @@ super-octo-engine-2/
 │   │   ├── RolesController.cs        → /api/roles
 │   │   ├── UsersController.cs        → /api/users
 │   │   ├── PermissionsController.cs  → /api/permissions
-│   │   ├── ServicesController.cs     → /api/services
-│   │   ├── ApiServiceRoutesController.cs → /api/api-service-routes
-│   │   ├── ModulesController.cs      → /api/modules
+│   │   ├── ModulesController.cs      → /api/modules (CRUD + routes + permissions + accessible)
 │   │   ├── TestEndpointsController.cs  → /api/receipts, /api/admin,
 │   │   │                                  /api/fabrics, /api/orders,
 │   │   │                                  /api/inventory, /api/reports
@@ -39,7 +38,7 @@ super-octo-engine-2/
 │   ├── Models/                  ← EF Core entities
 │   │   ├── AppUser.cs, Role.cs, Permission.cs, RolePermission.cs
 │   │   ├── UserRole.cs, Tenant.cs, TenantUser.cs
-│   │   ├── Service.cs, ApiServiceRoute.cs
+│   │   ├── ApiServiceRoute.cs, ModulePermission.cs
 │   │   ├── Module.cs, Page.cs, RoleModule.cs
 │   │   └── ...
 │   ├── Filters/
@@ -58,16 +57,16 @@ super-octo-engine-2/
 │   │   │   ├── Users.tsx            ← User CRUD with role assignment
 │   │   │   ├── Permissions.tsx      ← Permission CRUD with create/delete
 │   │   │   ├── Dashboard.tsx
-│   │   │   ├── Services.tsx         ← Service + API Route management
-│   │   │   ├── Modules.tsx         ← Module CRUD with search, tree view, delete
+│   │   │   ├── Modules.tsx         ← Module CRUD, route management (add/edit/delete), permission assignment, search, tree
 │   │   │   └── ...
 │   │   ├── components/
 │   │   │   ├── ProtectedRoute.tsx   ← Auth guard (checks localStorage)
+│   │   │   ├── Sidebar.tsx         ← Admin nav (no Services link) + dynamic "Applications" section from accessible_modules
 │   │   │   ├── Layout.tsx           ← Sidebar + Header + main
 │   │   │   ├── UserForm.tsx         ← User create/edit form with role multi-select
 │   │   │   └── ...
 │   │   └── lib/
-│   │       ├── api.ts               ← fetch wrapper, all endpoint functions, types
+│   │       ├── api.ts               ← fetch wrapper, all endpoint functions, types (no services.*, added modules.routes.*)
 │   │       ├── auth.ts              ← getSession, saveSession, clearSession, getToken
 │   │       └── utils.ts             ← cn() for Tailwind class merging
 │   └── vite.config.ts          ← Proxy /api/*, /auth/*, /mock-apps/* → http://127.0.0.1:5089
@@ -132,15 +131,9 @@ auth_tenantusers              ← Junction: User → Tenant
 ### Route Protection Tables
 
 ```
-auth_services
-  ├── id (PK)
-  ├── Name, Code (unique), BaseUrl
-  ├── Description
-  └── ...
-
 auth_api_service_routes       ← Maps URL patterns to required permissions
   ├── id (PK)
-  ├── ServiceId (FK → auth_services, nullable)
+  ├── ModuleId (FK → auth_modules)
   ├── HttpMethod (GET, POST, *, etc.)
   ├── RoutePattern (e.g. "/api/inventory")
   ├── RequiredPermissionCode (e.g. "Inventory_FullAccess")
@@ -148,16 +141,28 @@ auth_api_service_routes       ← Maps URL patterns to required permissions
   └── ...
 ```
 
-### Services vs Modules — Key Difference
+### Module Permission Tables
 
-| Aspect | Services (`auth_services`) | Modules (`auth_modules`) |
-|--------|---------------------------|--------------------------|
-| Purpose | Technical — containers for route rules + API keys | Organizational — labels for grouping permissions |
-| Used by | `DynamicPermissionMiddleware` at runtime | `Permissions.tsx` dropdown for permission group |
-| Connection to permissions | Route has `RequiredPermissionCode` (string match) | Name matches `Permission.GroupName` by convention |
-| What you do with them | Register microservice → add route rules → enforce access | Create labels → assign to permissions as group name |
+```
+auth_module_permissions       ← Maps permissions to modules for sidebar visibility
+  ├── id (PK)
+  ├── ModuleId (FK → auth_modules)
+  ├── PermissionId (FK → auth_permissions)
+  ├── UNIQUE (ModuleId, PermissionId)
+  └── ...
+```
 
-**Analogy:** Services = filing cabinet drawers (one per microservice). Routes = folders inside (URL patterns). Modules = colored sticky notes (group related permissions together). No direct DB relationship between them.
+### Routes live on Modules (Services removed)
+
+Routes are now attached directly to modules via `ModuleId` FK, removing the Services abstraction entirely. Each module can have zero or more API routes (`auth_api_service_routes`), and each route requires a permission code for middleware enforcement.
+
+| Aspect | Modules (`auth_modules`) |
+|--------|--------------------------|
+| Purpose | Organizational labels + sidebar nav items + route containers |
+| Used by | `DynamicPermissionMiddleware` at runtime + `Sidebar.tsx` "Applications" section + `Permissions.tsx` group dropdown |
+| Connection to permissions | Routes have `RequiredPermissionCode` (string match for middleware); `auth_module_permissions` junction (direct FK for sidebar visibility) |
+
+Modules with 0 permissions are visible to everyone.
 
 ### Entity Relationship Chain
 
@@ -167,10 +172,17 @@ auth_users
         └── auth_roles
               ├── auth_rolepermissions (RoleId → PermissionId)
               │     └── auth_permissions (Code = "Inventory_FullAccess")
+              │           ├── auth_module_permissions (PermissionId → ModuleId)
+              │           │     └── auth_modules
+              │           └── auth_api_service_routes (RequiredPermissionCode string match)
+              │                 └── auth_modules (ModuleId FK)
               └── auth_rolemodules (RoleId → ModuleId)
 
-auth_api_service_routes (RoutePattern → RequiredPermissionCode)
-  └── No FK to permissions — matched by string Code at runtime
+auth_api_service_routes (RoutePattern → RequiredPermissionCode, ModuleId FK → auth_modules)
+  └── Routes are children of modules; permission matched by string Code at runtime
+
+auth_module_permissions (ModuleId → PermissionId)
+  └── Direct junction between modules and permissions for sidebar visibility
 ```
 
 ---
@@ -387,80 +399,81 @@ auth_api_service_routes (RoutePattern → RequiredPermissionCode)
                                 │
 ```
 
-### 4c. Admin registers API routes via Services UI
+### 4c. Admin registers API routes via Modules UI (Services removed)
+
+Routes are now created directly on modules. The Modules page provides expandable route sections per module.
 
 ```
- Admin's Browser                  React Services.tsx            .NET 8 API                   MySQL
+ Admin's Browser                  React Modules.tsx             .NET 8 API                   MySQL
  ───────────────                  ─────────────────            ──────────                   ─────
 
- Services.tsx (http://localhost:5173/services)
+ Modules.tsx (http://localhost:5173/modules)
    │
-   ├── Page loads → api.services.list() + api.permissions.list()
+   ├── Page loads → api.modules.list() + api.permissions.list()
    │
    ▼
- Service cards rendered, each with:
-   ┌─ CentralAuth.Api ──────────────────────────────────────────┐
-   │  Name, Code, Status, Base URL, API keys                    │
-   │                                                            │
-   │  ▶ API Routes (0)                                          │  ←── click to expand
-   │  [ + Add Route ]                                            │
-   └────────────────────────────────────────────────────────────┘
+ Module rows rendered, each with:
+   ┌─ Cutting ─────────────────────────────────────────────┐
+   │  Code: CUT  |  Route: /Cutting  |  Status: Active     │
+   │                                                        │
+   │  [Manage Permissions 🔒]  [▶ Routes (0)]               │  ← click chevron to expand
+   └────────────────────────────────────────────────────────┘
    │
-   ├── Click ▶ API Routes
+   ├── Click ▶ Routes (chevron)
    │    │
    │    ▼
-   │  api.apiServiceRoutes.list(serviceId)  ──────────►  GET /api/api-service-routes  ──► SELECT
-   │    │                                              ?serviceId=N                        auth_api_service_routes
-   │    ▼
-   │  Routes table rendered (or "No routes registered")
-   │
-   ├── Click "+ Add Route"
+   │  Routes table expanded (or "No routes registered")
    │    │
-   │    ▼
-   │  Route modal opens:
-   │   ┌─ Add API Route ──────────────────────────────────────┐
-   │   │  HTTP Method:      [GET ▾]                           │
-   │   │  Route Pattern:    [/api/inventory                   │
-   │   │  Permission Code:  [ActiveInventory_FullAccess ▾]    │  ← datalist from api.permissions.list()
-   │   │  Description:      [Optional                         │
-   │   │  [Cancel]  [Add Route]                               │
-   │   └──────────────────────────────────────────────────────┘
+   │    ├── Click "+ Add Route"
+   │    │    │
+   │    │    ▼
+   │    │  Route modal opens:
+   │    │   ┌─ Add API Route ──────────────────────────────────────┐
+   │    │   │  HTTP Method:      [GET ▾]                           │
+   │    │   │  Route Pattern:    [/api/inventory                   │
+   │    │   │  Permission Code:  [Inventory_FullAccess ▾]          │  ← datalist from api.permissions.list()
+   │    │   │  [Cancel]  [Add Route]                               │
+   │    │   └──────────────────────────────────────────────────────┘
+   │    │    │
+   │    │    ├── Fill form, click "Add Route"
+   │    │    │
+   │    │    ▼
+   │    │  api.modules.routes.create(moduleId, payload) ──►  POST /api/modules/{id}/routes  ──► INSERT
+   │    │    │  { httpMethod: "GET",                         ModulesController.AddRoute()        auth_api_service_routes
+   │    │    │    routePattern: "/api/inventory",
+   │    │    │    requiredPermissionCode: "Inventory_FullAccess" }
+   │    │    │
+   │    │    ├── 201 Created { id: N }
+   │    │    ├── Cache invalidated (InvalidateCache() removes DynamicPermissionRoutes key)
+   │    │    └── UI refreshes route list for that module
    │    │
-   │    ├── Fill form, click "Add Route"
-   │    │
-   │    ▼
-   │  api.apiServiceRoutes.create(payload)  ──────────►  POST /api/api-service-routes  ──► INSERT
-   │    │  { serviceId, httpMethod: "GET",                    ApiServiceRoutesController.Create()  auth_api_service_routes
-   │    │    routePattern: "/api/inventory",
-   │    │    requiredPermissionCode: "Inventory_FullAccess" }
-   │    │
-   │    ├── 201 Created { id: N }
-   │    ├── Cache invalidated (InvalidateCache() removes DynamicPermissionRoutes key)
-   │    └── UI refreshes route list for that service
-   │
-   │  Deleting a route:
-   │    Click trash icon → api.apiServiceRoutes.remove(id)  ──►  DELETE /api/api-service-routes/{id}  ──► soft delete
-   │                                                                                                      (IsActive=false)
-   │    → Cache invalidated
-   │    → UI refreshes
+   │    └── Deleting a route:
+   │         Click trash icon → api.modules.routes.remove(moduleId, id)
+   │           ──►  DELETE /api/modules/{id}/routes/{routeId}  ──► soft delete (IsActive=false)
+   │           → Cache invalidated
+   │           → UI refreshes
    │
    ▼
   Result: auth_api_service_routes now has row:
-   ┌────┬───────────┬────────┬─────────────────┬────────────────────────────┐
-   │ Id │ ServiceId │ Method │ RoutePattern     │ RequiredPermissionCode     │
-   ├────┼───────────┼────────┼─────────────────┼────────────────────────────┤
-   │ 15 │ 1         │ GET    │ /api/inventory   │ Inventory_FullAccess       │
-   └────┴───────────┴────────┴─────────────────┴────────────────────────────┘
+   ┌────┬──────────┬────────┬─────────────────┬────────────────────────────┐
+   │ Id │ ModuleId │ Method │ RoutePattern     │ RequiredPermissionCode     │
+   ├────┼──────────┼────────┼─────────────────┼────────────────────────────┤
+   │ 15 │ 1        │ GET    │ /api/inventory   │ Inventory_FullAccess       │
+   └────┴──────────┴────────┴─────────────────┴────────────────────────────┘
 ```
 
+> **Note:** `CreateRoute` and `UpdateRoute` both validate `HttpMethod`, `RoutePattern`, and `RequiredPermissionCode` are non-null before use (returns 400 BadRequest if missing). The DB has a unique index on `(HttpMethod, RoutePattern)` — attempting to register a duplicate HTTP+path combination returns 500.
+
 ### Key files for route management UI:
-- `Central_auth/src/pages/Services.tsx` — expandable route sections + route modal
-- `Central_auth/src/lib/api.ts` — `api.apiServiceRoutes` CRUD functions + `ApiServiceRoute` types
-- `Central_auth_api/Controllers/ApiServiceRoutesController.cs` — backend CRUD endpoints
-- `Central_auth_api/Models/ApiServiceRoute.cs` — entity model
+- `Central_auth/src/pages/Modules.tsx` — expandable route sections + route modal + Manage Permissions
+- `Central_auth/src/lib/api.ts` — `api.modules.routes.*` CRUD functions + `ModuleRouteItem` types
+- `Central_auth_api/Controllers/ModulesController.cs` — endpoints: `GET|POST|PUT|DELETE /{id}/routes`
+- `Central_auth_api/Models/ApiServiceRoute.cs` — entity model (ModuleId FK, no more ServiceId)
 - `Central_auth/vite.config.ts` — proxies `/api/*` to backend
 
 ### 4d. Admin browses and manages modules with search, tree view, and delete
+
+`ModuleListItemDto` now includes `ParentId` (nullable long), enabling the frontend to build a hierarchical tree from the flat list response.
 
 ```
  Modules.tsx (http://localhost:5173/Modules)
@@ -474,7 +487,7 @@ auth_api_service_routes (RoutePattern → RequiredPermissionCode)
  │ Name          Code   Route      Status   Actions     │
  ├──────────────────────────────────────────────────────┤
  │ 📦 Accounts   ACC   /security  Active   ✏️  🗑️      │  ← parent row
- │   └─ 📦 ...   ...   ...        ...      ...          │  ← child (indented)
+ │   └─ 📦 ...   ...   ...        ...      ...          │  ← child (indented, parentId != null)
  │ 📦 Cutting    CUT   /Cutting   Active   ✏️  🗑️      │
  │ 📦 Fabric     FAB   /hrm       Active   ✏️  🗑️      │
  └──────────────────────────────────────────────────────┘
@@ -494,8 +507,85 @@ auth_api_service_routes (RoutePattern → RequiredPermissionCode)
 ```
 
 ### Key files for Modules page:
-- `Central_auth/src/pages/Modules.tsx` — search bar, tree rendering, delete confirmation
-- `Central_auth/src/lib/api.ts` — `api.modules.remove(id)` function
+- `Central_auth/src/pages/Modules.tsx` — search bar, tree rendering (parentId from DTO), delete confirmation, Manage Permissions modal
+- `Central_auth/src/lib/api.ts` — `api.modules.remove(id)`, `api.modules.permissions(id)`, `api.modules.updatePermissions(id, ids)` functions
+- `Central_auth_api/Controllers/ModulesController.cs` — `GET /api/modules/accessible`, `GET|PUT /api/modules/{id}/permissions`
+- `Central_auth_api/DTOs/RoleDtos.cs` — `ModuleListItemDto` record includes `ParentId`
+
+### 4e. Admin assigns permissions to modules (Module ↔ Permission junction)
+
+```
+ Modules.tsx → click shield icon on a module row
+   │
+   ▼
+ ┌────────────────────────────────────────────────────────────────┐
+ │  Manage Permissions — Cutting                                  │
+ │  ┌──────────────────────────────────────────────────────────┐  │
+ │  │ [🔍 Search permissions by name or code...]              │  │  ← search bar
+ │  └──────────────────────────────────────────────────────────┘  │
+ │  ┌──────────────────────────────────────────────────────────┐  │
+ │  │ ☑ Inventory_ReadAccess    Inventory Read Access         │  │
+ │  │ ☐ Inventory_WriteAccess   Inventory Write Access        │  │
+ │  │ ☑ HR_FullAccess           HR Full Access                │  │
+ │  │ ...                                                      │  │
+ │  └──────────────────────────────────────────────────────────┘  │
+ │  │  2 selected                        [Cancel] [Save]         │
+ └────────────────────────────────────────────────────────────────┘
+   │
+   ├── Modal loads: fetch all permissions + current module's assigned permission IDs
+   │     api.permissions.list()  +  api.modules.permissions(id)
+   │
+   ├── User checks/unchecks permissions, clicks Save
+   │     → api.modules.updatePermissions(id, [ids])
+   │     → PUT /api/modules/{id}/permissions { permissionIds: [...] }
+   │
+   ├── Backend: deletes all existing ModulePermission rows for that module, inserts new ones
+   │     db.ModulePermissions.RemoveRange(module.ModulePermissions)
+   │     db.ModulePermissions.AddRange(new entries)
+   │
+   └── Result: auth_module_permissions now reflects the assignment
+         ┌────┬──────────┬──────────────┐
+         │ Id │ ModuleId │ PermissionId │
+         ├────┼──────────┼──────────────┤
+         │ 1  │ 1        │ 13           │
+         │ 2  │ 1        │ 5            │
+         └────┴──────────┴──────────────┘
+```
+
+### Sidebar consumption — `GET /api/modules/accessible`
+
+```
+ Sidebar.tsx
+   │
+   ├── Mount → check localStorage("accessible_modules") cache (5 min TTL)
+   │
+   ├── Cache miss → api.modules.accessible()
+   │     → GET /api/modules/accessible
+   │     → Backend:
+   │        1. Get user's permission IDs from UserRoles → RolePermissions
+   │        2. Find modules where:
+   │           - Module has 0 ModulePermissions → visible to all
+   │           OR
+   │           - Module has ≥1 ModulePermission matching user's permission IDs
+   │        3. Sort by SortOrder → Name
+   │        4. Return ModuleAccessibleDto[]
+   │
+   ├── Cache hit → use cached modules immediately (no flicker)
+   │
+   └── Render "Applications" section in sidebar nav
+         ┌─ Applications ─────────────────────────┐
+         │  📦 Cutting        (href="/Cutting")   │
+         │  📦 Accounts       (href="/security")  │
+         │  ...                                   │
+         └────────────────────────────────────────┘
+```
+
+### Behavior rules:
+- **Module with 0 permissions assigned** → visible to **all** authenticated users (default-open)
+- **Module with ≥1 permission assigned** → visible **only** to users whose roles include at least one matching permission
+- **Cache key**: `accessible_modules` with shape `{ modules: ModuleAccessible[], fetchedAt: number }`
+- **Cache TTL**: 5 minutes; survives page refresh; re-fetches on expiry
+- **Middleware is unaffected**: Sidebar is UX-only; backend still enforces per-route access via `DynamicPermissionMiddleware`
 
 ### Resulting MySQL relationship chain:
 
@@ -635,7 +725,7 @@ await _next(context);
    │   └── <Route path="/login" element={<Login />} />
    │        → No guard — everyone can reach login
    │
-   ├── Path: "/dashboard", "/roles", "/users", "/services", etc.
+    ├── Path: "/dashboard", "/roles", "/users", "/modules", etc.
    │   │
    │   ▼
    │   <ProtectedRoute />
@@ -747,30 +837,30 @@ await _next(context);
   401 → alert + redirect to /swagger
   403 → alert + redirect to /swagger
 
-  ──── PHASE 5 ──── REGISTER API ROUTES VIA SERVICES UI ──────────────────────────────────
+  ──── PHASE 5 ──── REGISTER API ROUTES VIA MODULES UI ────────────────────────────────────
 
-   Services.tsx
-   [expand service card]                 api.apiServiceRoutes          ApiServiceRoutesController    MySQL
-    │                                         .list(serviceId)          GET /api/api-service-routes
-    ├──► routes displayed ◄──────────────────────────────────────────────────────────────── auth_api_service_routes
-    │
-    ├──► Click "+ Add Route"
-    │      │
-    │      │  httpMethod: "GET"
-    │      │  routePattern: "/api/inventory"
-    │      │  requiredPermissionCode: "Inventory_FullAccess"
-    │      │
-    │      ▼
-    │   api.apiServiceRoutes                POST /api/api-service-routes     Create()
-    │     .create(payload) ─────────────────►  │                              │
-    │                                          │  1. Validate required fields  │
-    │                                          │  2. INSERT INTO               │
-    │                                          │     auth_api_service_routes  ──► INSERT
-    │                                          │  3. InvalidateCache()        │
-    │                                          │     (IMemoryCache reset)     │
-    │                                          └── 201 Created                │
-    │                                                                         │
-    └──► UI refreshes route list (re-fetches api.apiServiceRoutes.list())
+   Modules.tsx
+   [expand module section]               api.modules.routes          ModulesController        MySQL
+     │                                         .list(moduleId)         GET /api/modules/{id}/routes
+     ├──► routes displayed ◄─────────────────────────────────────────────────────────────── auth_api_service_routes
+     │
+     ├──► Click "+ Add Route"
+     │      │
+     │      │  httpMethod: "GET"
+     │      │  routePattern: "/api/inventory"
+     │      │  requiredPermissionCode: "Inventory_FullAccess"
+     │      │
+     │      ▼
+     │   api.modules.routes              POST /api/modules/{id}/routes   AddRoute()
+     │     .create(moduleId,             ─────────────────►  │                              │
+     │       payload)                                         │  1. Validate required fields  │
+     │                                                        │  2. INSERT INTO               │
+     │                                                        │     auth_api_service_routes  ──► INSERT
+     │                                                        │  3. InvalidateCache()        │
+     │                                                        │     (IMemoryCache reset)     │
+     │                                                        └── 201 Created                │
+     │                                                                                        │
+     └──► UI refreshes route list (re-fetches api.modules.routes.list(moduleId))
 
   ──── AWAIT RESPONSE ────────────────────────────────────────────────────────────────────
 
@@ -798,6 +888,7 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 | `/mock-apps/Reports` | `/api/reports` | ❌ `Reports_FullAccess` | 403 🔒 |
 | `/mock-apps/FabricsReceiving/Receipts` | `/api/receipts` | ❌ `FabricsReceiving_Receipts_View` | 403 🔒 |
 | `/mock-apps/Admin/Dashboard` | `/api/admin` | ❌ `Administration_FullAccess` | 403 🔒 |
+| `/mock-apps/HR` | `/api/hr` | ❌ (no `HR_FullAccess`) | 403 🔒 |
 
 ### 8b. React admin pages (client-side route guard)
 
@@ -808,7 +899,6 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 | `/roles` | ✅ Yes | Requires valid session |
 | `/users` | ✅ Yes | Requires valid session |
 | `/permissions` | ✅ Yes | Requires valid session |
-| `/services` | ✅ Yes | Requires valid session |
 | `/modules` | ✅ Yes | Requires valid session |
 | `/tenants` | ✅ Yes | Requires valid session |
 | `/sessions` | ✅ Yes | Requires valid session |
@@ -816,13 +906,46 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 
 > **Note:** The `ProtectedRoute` only checks for token **existence + expiry**. It does NOT check permission claims. Permission-based feature gating within admin pages would need additional logic (e.g., checking specific claims on the JWT payload).
 
-### 8c. Route management via Services UI
+### 8c. Route management via Modules UI
 
 | Action | UI Location | API Endpoint | Effect |
 |--------|------------|--------------|--------|
-| List routes | Expand service card | `GET /api/api-service-routes?serviceId=N` | Shows routes table |
-| Add route | Click "+ Add Route" in expanded section | `POST /api/api-service-routes` | Creates route, invalidates middleware cache |
-| Delete route | Click trash icon on route row | `DELETE /api/api-service-routes/{id}` | Soft-deletes (IsActive=false), invalidates cache |
+| List routes | Expand module chevron | `GET /api/modules/{id}/routes` | Shows routes table per module |
+| Add route | Click "+ Add Route" in expanded section | `POST /api/modules/{id}/routes` | Creates route, invalidates middleware cache |
+| Delete route | Click trash icon on route row | `DELETE /api/modules/{id}/routes/{routeId}` | Soft-deletes (IsActive=false), invalidates cache |
+
+---
+
+---
+
+## 9. Verified Test Results
+
+Full end-to-end test run on `iftiyeamin06@gmail.com` (roles: Super Admin, HR Manager; permissions: `HR_FullAccess`, `user.*`, `role.*`):
+
+| # | Action | Result |
+|---|--------|--------|
+| 1 | `POST /api/auth/login` | **200** — JWT contains `HR_FullAccess` permission claim |
+| 2 | `GET /api/modules` | **200** — 5 modules returned with `parentId` (tree hierarchy works) |
+| 3 | `POST /api/modules/7/routes` → `/api/hr` → `HR_FullAccess` | **201** — Route created |
+| 4 | `POST /api/modules/6/routes` → `/api/fabrics` → `Fabrics_FullAccess` | **201** — Route created |
+| 5 | `POST /api/modules/8/routes` → `/api/inventory` → `Inventory_FullAccess` | **201** — Route created |
+| 6 | `POST /api/modules/6/routes` → `/api/orders` → `Orders_FullAccess` | **201** — Route created |
+| 7 | `POST /api/modules/6/routes` → `/api/reports` → `Reports_FullAccess` | **201** — Route created |
+| 8 | `POST /api/modules/6/routes` → `/api/receipts` → `FabricsReceiving_Receipts_View` | **201** — Route created |
+| 9 | `POST /api/modules/6/routes` → `/api/admin` → `Administration_FullAccess` | **201** — Route created |
+| 10 | `GET /api/hr` (has `HR_FullAccess`) | **200** — `{"module":"HR","status":"ok"}` |
+| 11 | `GET /api/fabrics` (no `Fabrics_FullAccess`) | **403** — Forbidden |
+| 12 | `GET /api/inventory` (no `Inventory_FullAccess`) | **403** — Forbidden |
+| 13 | `GET /api/orders` (no `Orders_FullAccess`) | **403** — Forbidden |
+| 14 | `GET /api/reports` (no `Reports_FullAccess`) | **403** — Forbidden |
+| 15 | `GET /api/receipts` (no `FabricsReceiving_Receipts_View`) | **403** — Forbidden |
+| 16 | `GET /api/admin` (no `Administration_FullAccess`) | **403** — Forbidden |
+| 17 | `GET /mock-apps/HR` (served by MockAppController) | **200** — 3492 bytes HTML |
+| 18 | `GET /api/modules/accessible` | **200** — All 5 modules visible (none have `auth_module_permissions` entries) |
+| 19 | `GET /api/hr` via Vite proxy (`localhost:5173`) | **200** — Proxy forwarding works |
+| 20 | `GET /mock-apps/HR` via Vite proxy (`localhost:5173`) | **200** — 3492 bytes HTML |
+
+**Duplicate route registration:** Attempting to create a route with same `HttpMethod`+`RoutePattern` as an existing row returns **500** (unique index violation on `IX_auth_api_service_routes_HttpMethod_RoutePattern`).
 
 ---
 
@@ -832,17 +955,16 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 
 | File | Purpose |
 |---|---|
-| `Central_auth/src/lib/api.ts` | All API calls, fetch wrapper, types/interfaces (includes `api.modules.remove`, `api.apiServiceRoutes.*`) |
+| `Central_auth/src/lib/api.ts` | All API calls, fetch wrapper, types/interfaces (includes `api.modules.routes.*`, `api.modules.permissions.*`) |
 | `Central_auth/src/lib/auth.ts` | localStorage session management (get/save/clear) |
 | `Central_auth/src/components/ProtectedRoute.tsx` | Route guard component |
-| `Central_auth/src/components/Sidebar.tsx` | Hardcoded admin navigation (Dashboard, Users, Roles, Modules, Tenants, Services, Sessions, Audit) |
+| `Central_auth/src/components/Sidebar.tsx` | Hardcoded admin nav + dynamic "Applications" section (localStorage cache, 5 min TTL, from `accessible_modules` key) |
 | `Central_auth/src/App.tsx` | Router with all routes |
 | `Central_auth/src/pages/Login.tsx` | Login form, saves session to localStorage |
 | `Central_auth/src/pages/Roles.tsx` | Role CRUD with permission checkboxes |
 | `Central_auth/src/pages/Users.tsx` | User CRUD with role assignment |
 | `Central_auth/src/pages/Permissions.tsx` | Permission CRUD with create/delete, group dropdown from modules |
-| `Central_auth/src/pages/Modules.tsx` | Module CRUD with search bar, parent-child tree indentation, inline delete confirmation |
-| `Central_auth/src/pages/Services.tsx` | Service + API Route management: expandable route tables, "Add Route" modal with HTTP method dropdown + permission datalist |
+| `Central_auth/src/pages/Modules.tsx` | Module CRUD + route management (expandable sections with chevron, add/edit/delete routes, HTTP method dropdown + permission datalist) + Manage Permissions modal (permission search + multi-select) |
 | `Central_auth/src/components/UserForm.tsx` | User create/edit form with role multi-select |
 | `Central_auth/vite.config.ts` | Dev server proxy config (/api, /auth, /mock-apps) |
 
@@ -853,10 +975,12 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 | `Central_auth_api/Controllers/AuthController.cs` | Login endpoint, JWT generation with permission claims |
 | `Central_auth_api/Controllers/RolesController.cs` | Role CRUD with permission assignment |
 | `Central_auth_api/Controllers/UsersController.cs` | User CRUD with role assignment |
-| `Central_auth_api/Controllers/ApiServiceRoutesController.cs` | Route-permission mapping CRUD |
+| `Central_auth_api/Controllers/ModulesController.cs` | Module CRUD + `GET /accessible` (sidebar), `GET|POST|PUT|DELETE /{id}/routes` (route management), `GET|PUT /{id}/permissions` (permission assignment) |
 | `Central_auth_api/Filters/DynamicPermissionMiddleware.cs` | Middleware that enforces route permissions |
 | `Central_auth_api/Filters/DynamicPermissionFilter.cs` | Filter (alternative enforcement layer) |
 | `Central_auth_api/Controllers/TestEndpointsController.cs` | Protected backend data stubs |
 | `Central_auth_api/Controllers/MockAppController.cs` | HTML mock pages with JS security guard |
 | `Central_auth_api/Program.cs` | Service registration, middleware pipeline |
 | `Central_auth_api/Data/CentralAuthDbContext.cs` | EF Core DbContext, audit trail |
+| `Central_auth_api/Models/ModulePermission.cs` | Junction entity for `auth_module_permissions` table (ModuleId ↔ PermissionId) |
+| `Central_auth_api/Models/ApiServiceRoute.cs` | Route entity with ModuleId FK (no more ServiceId), RequiredPermissionCode for middleware |

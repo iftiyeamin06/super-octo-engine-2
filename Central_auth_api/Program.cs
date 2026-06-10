@@ -39,8 +39,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(jwtKey),
             ClockSkew = TimeSpan.Zero
         };
-    })
-    .AddScheme<ApiKeyAuthOptions, ApiKeyAuthenticationHandler>("ApiKey", null);
+    });
 
 builder.Services.AddAuthorization();
 

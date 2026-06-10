@@ -1,22 +1,25 @@
+using System.Security.Claims;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.DTOs;
 using CentralAuth.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace CentralAuth.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ModulesController(CentralAuthDbContext db) : ControllerBase
+public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : ControllerBase
 {
+    private static readonly string CacheKey = "DynamicPermissionRoutes";
     [HttpGet]
     public async Task<List<ModuleListItemDto>> GetAll() =>
         await db.Modules
             .AsNoTracking()
             .OrderBy(m => m.SortOrder)
             .ThenBy(m => m.Name)
-            .Select(m => new ModuleListItemDto(m.Id, m.Name, m.Code, m.Route, m.IsActive, m.CreatedAt, m.UpdatedAt))
+            .Select(m => new ModuleListItemDto(m.Id, m.Name, m.Code, m.Route, m.ParentId, m.IsActive, m.CreatedAt, m.UpdatedAt))
             .ToListAsync();
 
     [HttpGet("{id:long}")]
@@ -76,9 +79,143 @@ public class ModulesController(CentralAuthDbContext db) : ControllerBase
     {
         var module = await db.Modules.FindAsync(id);
         if (module is null) return NotFound();
-        module.IsActive = false;
-        module.UpdatedAt = DateTime.UtcNow;
+        db.Modules.Remove(module);
         await db.SaveChangesAsync();
         return Ok();
+    }
+
+    [HttpGet("accessible")]
+    public async Task<List<ModuleAccessibleDto>> GetAccessible()
+    {
+        var uidClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (uidClaim is null || !long.TryParse(uidClaim, out var userId))
+            return [];
+
+        var userPermissionIds = await db.UserRoles
+            .Where(ur => ur.AppUserId == userId)
+            .SelectMany(ur => ur.Role.RolePermissions)
+            .Select(rp => rp.PermissionId)
+            .Distinct()
+            .ToListAsync();
+
+        return await db.Modules
+            .AsNoTracking()
+            .Where(m => m.IsActive && m.ModulePermissions.Any(mp => userPermissionIds.Contains(mp.PermissionId)))
+            .OrderBy(m => m.SortOrder)
+            .ThenBy(m => m.Name)
+            .Select(m => new ModuleAccessibleDto(m.Id, m.Name, m.Code, m.Route, m.Icon, m.SortOrder))
+            .ToListAsync();
+    }
+
+    [HttpGet("{id:long}/permissions")]
+    public async Task<ActionResult<List<long>>> GetPermissions(long id)
+    {
+        var exists = await db.Modules.AnyAsync(m => m.Id == id);
+        if (!exists) return NotFound();
+
+        var ids = await db.ModulePermissions
+            .Where(mp => mp.ModuleId == id)
+            .Select(mp => mp.PermissionId)
+            .ToListAsync();
+
+        return Ok(ids);
+    }
+
+    [HttpPut("{id:long}/permissions")]
+    public async Task<ActionResult> UpdatePermissions(long id, [FromBody] ModulePermissionsUpdateDto dto)
+    {
+        var module = await db.Modules.Include(m => m.ModulePermissions).FirstOrDefaultAsync(m => m.Id == id);
+        if (module is null) return NotFound();
+
+        db.ModulePermissions.RemoveRange(module.ModulePermissions);
+        module.ModulePermissions = dto.PermissionIds.Select(pid => new ModulePermission
+        {
+            ModuleId = id,
+            PermissionId = pid
+        }).ToList();
+
+        await db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // ── Route CRUD ─────────────────────────────────────────────────────
+
+    [HttpGet("{id:long}/routes")]
+    public async Task<ActionResult<List<ModuleRouteListItemDto>>> GetRoutes(long id)
+    {
+        var exists = await db.Modules.AnyAsync(m => m.Id == id);
+        if (!exists) return NotFound();
+
+        return await db.ApiServiceRoutes
+            .AsNoTracking()
+            .Where(r => r.ModuleId == id)
+            .OrderBy(r => r.HttpMethod)
+            .ThenBy(r => r.RoutePattern)
+            .Select(r => new ModuleRouteListItemDto(r.Id, r.ModuleId, r.HttpMethod, r.RoutePattern, r.RequiredPermissionCode, r.Description, r.IsActive, r.CreatedAt))
+            .ToListAsync();
+    }
+
+    [HttpPost("{id:long}/routes")]
+    public async Task<ActionResult> CreateRoute(long id, [FromBody] ModuleRouteCreateDto dto)
+    {
+        var exists = await db.Modules.AnyAsync(m => m.Id == id);
+        if (!exists) return NotFound();
+
+        if (string.IsNullOrWhiteSpace(dto.HttpMethod)) return BadRequest("HttpMethod is required.");
+        if (string.IsNullOrWhiteSpace(dto.RoutePattern)) return BadRequest("RoutePattern is required.");
+        if (string.IsNullOrWhiteSpace(dto.RequiredPermissionCode)) return BadRequest("RequiredPermissionCode is required.");
+
+        var route = new ApiServiceRoute
+        {
+            ModuleId = id,
+            HttpMethod = dto.HttpMethod.ToUpperInvariant(),
+            RoutePattern = dto.RoutePattern,
+            RequiredPermissionCode = dto.RequiredPermissionCode,
+            Description = dto.Description
+        };
+
+        db.ApiServiceRoutes.Add(route);
+        await db.SaveChangesAsync();
+        InvalidateCache();
+
+        return CreatedAtAction(nameof(GetRoutes), new { id }, new { route.Id });
+    }
+
+    [HttpPut("{id:long}/routes/{routeId:long}")]
+    public async Task<ActionResult> UpdateRoute(long id, long routeId, [FromBody] ModuleRouteUpdateDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.HttpMethod) || string.IsNullOrWhiteSpace(dto.RoutePattern) || string.IsNullOrWhiteSpace(dto.RequiredPermissionCode))
+            return BadRequest(new { message = "HttpMethod, RoutePattern, and RequiredPermissionCode are required." });
+
+        var route = await db.ApiServiceRoutes.FirstOrDefaultAsync(r => r.Id == routeId && r.ModuleId == id);
+        if (route is null) return NotFound();
+
+        route.HttpMethod = dto.HttpMethod.ToUpperInvariant();
+        route.RoutePattern = dto.RoutePattern;
+        route.RequiredPermissionCode = dto.RequiredPermissionCode;
+        route.Description = dto.Description;
+        route.IsActive = dto.IsActive;
+        route.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync();
+        InvalidateCache();
+        return NoContent();
+    }
+
+    [HttpDelete("{id:long}/routes/{routeId:long}")]
+    public async Task<ActionResult> DeleteRoute(long id, long routeId)
+    {
+        var route = await db.ApiServiceRoutes.FirstOrDefaultAsync(r => r.Id == routeId && r.ModuleId == id);
+        if (route is null) return NotFound();
+
+        db.ApiServiceRoutes.Remove(route);
+        await db.SaveChangesAsync();
+        InvalidateCache();
+        return NoContent();
+    }
+
+    private void InvalidateCache()
+    {
+        cache.Remove(CacheKey);
     }
 }

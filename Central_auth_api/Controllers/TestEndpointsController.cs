@@ -47,6 +47,12 @@ public class TestEndpointsController : ControllerBase
         return Ok(new { module = "Inventory", status = "ok" });
     }
 
+    [HttpGet("/api/cutting")]
+    public IActionResult GetCutting()
+    {
+        return Ok(new { module = "Cutting", status = "ok" });
+    }
+
     [HttpGet("/api/reports")]
     public IActionResult GetReports()
     {
@@ -57,5 +63,11 @@ public class TestEndpointsController : ControllerBase
     public IActionResult GetHr()
     {
         return Ok(new { module = "HR", status = "ok" });
+    }
+
+    [HttpGet("/api/binding")]
+    public IActionResult GetBinding()
+    {
+        return Ok(new { module = "Binding", status = "ok" });
     }
 }

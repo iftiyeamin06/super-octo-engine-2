@@ -5,7 +5,6 @@ public class AuditHistory
     public long Id { get; set; }
     public long? TenantId { get; set; }
     public long? AppUserId { get; set; }
-    public long? ServiceId { get; set; }
     public string ActionType { get; set; } = string.Empty;
     public string EntityName { get; set; } = string.Empty;
     public string EntityKey { get; set; } = string.Empty;
@@ -18,5 +17,4 @@ public class AuditHistory
 
     public Tenant? Tenant { get; set; }
     public AppUser? AppUser { get; set; }
-    public Service? Service { get; set; }
 }

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Plus, Shield, Users, Lock, Trash2, X, Loader2, RefreshCw } from "lucide-react";
+import { Plus, Shield, Users, Lock, Trash2, X, Loader2, RefreshCw, Pencil } from "lucide-react";
 import Badge from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
 import { cn } from "../lib/utils";
 import { api, type RoleListItem, type RoleDetail, type Permission } from "../lib/api";
+import { clearAccessibleModulesCache } from "../lib/auth";
 
 const COLORS = ["purple", "blue", "green", "orange", "red", "teal"];
 const colorMap: Record<string, string> = {
@@ -20,7 +21,7 @@ const iconColor: Record<string, string> = {
 };
 function pickColor(idx: number) { return COLORS[idx % COLORS.length]; }
 
-const emptyForm = { name: "", description: "", tenantId: "" };
+const emptyForm = { name: "", description: "", isActive: true };
 
 export default function Roles() {
   const [roles, setRoles] = useState<RoleListItem[]>([]);
@@ -31,6 +32,8 @@ export default function Roles() {
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
   const [permGroups, setPermGroups] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+
+  const [editingRole, setEditingRole] = useState<RoleDetail | null>(null);
 
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -61,6 +64,15 @@ export default function Roles() {
     setForm(emptyForm);
     setSelectedPerms([]);
     setFormError(null);
+    setEditingRole(null);
+    setModal(true);
+  }
+
+  function openEdit(role: RoleDetail) {
+    setEditingRole(role);
+    setForm({ name: role.name, description: role.description ?? "", isActive: role.isActive });
+    setSelectedPerms(role.permissions.map(p => p.id));
+    setFormError(null);
     setModal(true);
   }
 
@@ -75,21 +87,33 @@ export default function Roles() {
   async function save() {
     setSaving(true); setFormError(null);
     try {
-      await api.roles.create({
-        name: form.name, description: form.description || null,
-        tenantId: form.tenantId ? Number(form.tenantId) : null,
-        permissionIds: selectedPerms,
-      });
+      if (editingRole) {
+        await api.roles.update(editingRole.id, {
+          name: form.name,
+          description: form.description || null,
+          isActive: form.isActive,
+          permissionIds: selectedPerms,
+          moduleIds: [],
+        });
+      } else {
+        await api.roles.create({
+          name: form.name, description: form.description || null,
+          permissionIds: selectedPerms,
+        });
+      }
+      clearAccessibleModulesCache();
       setModal(false);
+      setEditingRole(null);
       loadRoles();
     } catch (e: unknown) {
-      setFormError(e instanceof Error ? e.message : "Failed to create role");
+      setFormError(e instanceof Error ? e.message : (editingRole ? "Failed to update role" : "Failed to create role"));
     } finally { setSaving(false); }
   }
 
   async function deleteRole(id: number) {
     if (!confirm("Delete this role?")) return;
     await api.roles.delete(id).catch(() => {});
+    clearAccessibleModulesCache();
     setSelected(null);
     loadRoles();
   }
@@ -187,10 +211,16 @@ export default function Roles() {
                   <p className="text-sm text-muted-foreground mt-0.5">{selected.description || "No description"}</p>
                 </div>
                 {!selected.isSystem && (
-                  <button onClick={() => deleteRole(selected.id)}
-                    className="p-2 rounded-lg border border-red-200 hover:bg-red-50 transition-colors flex-shrink-0">
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={() => openEdit(selected)}
+                      className="p-2 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors flex-shrink-0">
+                      <Pencil className="w-4 h-4 text-blue-500" />
+                    </button>
+                    <button onClick={() => deleteRole(selected.id)}
+                      className="p-2 rounded-lg border border-red-200 hover:bg-red-50 transition-colors flex-shrink-0">
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="mt-4">
@@ -271,12 +301,12 @@ export default function Roles() {
         )}
       </div>
 
-      {/* Create Role Modal */}
+      {/* Create / Edit Role Modal */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-card border rounded-xl w-full max-w-lg shadow-xl my-4">
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h2 className="text-sm font-semibold">Create Role</h2>
+              <h2 className="text-sm font-semibold">{editingRole ? "Edit Role" : "Create Role"}</h2>
               <button onClick={() => setModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
@@ -333,7 +363,7 @@ export default function Roles() {
               <button onClick={() => setModal(false)} className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">Cancel</button>
               <button onClick={save} disabled={saving || !form.name}
                 className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
-                {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Create Role
+                {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {editingRole ? "Save Changes" : "Create Role"}
               </button>
             </div>
           </div>

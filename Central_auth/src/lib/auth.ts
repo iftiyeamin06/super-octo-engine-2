@@ -35,3 +35,22 @@ export function clearSession() {
 export function getToken(): string | null {
   return getSession()?.token ?? null;
 }
+
+const MODULE_CACHE_KEY = "accessible_modules";
+
+export function clearAccessibleModulesCache() {
+  localStorage.removeItem(MODULE_CACHE_KEY);
+}
+
+export function getPermissions(): string[] {
+  const session = getSession();
+  if (!session?.token) return [];
+  try {
+    const payload = session.token.split('.')[1];
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+    const decoded = JSON.parse(atob(padded));
+    const raw = decoded.permission;
+    return Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  } catch { return []; }
+}

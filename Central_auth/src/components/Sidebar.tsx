@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, ShieldCheck, Building2, Monitor, ClipboardList, Globe, LogOut, KeyRound, Building, Briefcase, Lock, Boxes } from "lucide-react";
+import { LayoutDashboard, Users, ShieldCheck, Building2, Monitor, ClipboardList, LogOut, KeyRound, Building, Briefcase, Lock, Boxes, AppWindow, BugPlay } from "lucide-react";
 import { cn } from "../lib/utils";
 import { getSession, clearSession } from "../lib/auth";
+import { api, type ModuleAccessible } from "../lib/api";
 
 const navGroups = [
   {
@@ -20,21 +22,40 @@ const navGroups = [
       { to: "/tenants",      icon: Building2,  label: "Tenants" },
       { to: "/departments",  icon: Building,   label: "Departments" },
       { to: "/designations", icon: Briefcase,  label: "Designations" },
-      { to: "/services",     icon: Globe,      label: "Services & API Keys" },
     ],
   },
   {
     label: "Monitoring",
     items: [
-      { to: "/sessions", icon: Monitor,       label: "Sessions" },
-      { to: "/audit",    icon: ClipboardList, label: "Audit Logs" },
+      { to: "/sessions",      icon: Monitor,       label: "Sessions" },
+      { to: "/audit",         icon: ClipboardList, label: "Audit Logs" },
+      { to: "/access-tester", icon: BugPlay,       label: "Access Tester" },
     ],
   },
 ];
 
+const CACHE_KEY = "accessible_modules";
+const CACHE_TTL = 5 * 60 * 1000; // 5 min
+
 export default function Sidebar() {
   const navigate = useNavigate();
   const session = getSession();
+  const [accessible, setAccessible] = useState<ModuleAccessible[]>(() => {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return [];
+      const cached = JSON.parse(raw);
+      if (Date.now() - cached.fetchedAt > CACHE_TTL) return [];
+      return cached.modules ?? [];
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    api.modules.accessible().then(mods => {
+      setAccessible(mods);
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ modules: mods, fetchedAt: Date.now() }));
+    }).catch(() => {});
+  }, []);
 
   function logout() {
     clearSession();
@@ -80,6 +101,24 @@ export default function Sidebar() {
             </div>
           </div>
         ))}
+
+        {accessible.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-1">Applications</p>
+            <div className="space-y-0.5">
+              {accessible.map(mod => (
+                <button
+                  key={mod.id}
+                  onClick={() => navigate(`/apps/${mod.id}`)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors text-left"
+                >
+                  <AppWindow className="w-4 h-4 flex-shrink-0" />
+                  {mod.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* User Footer */}

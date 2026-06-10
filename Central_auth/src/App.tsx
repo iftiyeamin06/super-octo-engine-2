@@ -11,8 +11,9 @@ import Departments from "./pages/Departments";
 import Designations from "./pages/Designations";
 import Sessions from "./pages/Sessions";
 import AuditLogs from "./pages/AuditLogs";
-import Services from "./pages/Services";
 import Modules from "./pages/Modules";
+import ModulePage from "./pages/ModulePage";
+import AccessTester from "./pages/AccessTester";
 
 export default function App() {
   return (
@@ -31,8 +32,9 @@ export default function App() {
             <Route path="designations" element={<Designations />} />
             <Route path="sessions" element={<Sessions />} />
             <Route path="audit" element={<AuditLogs />} />
-            <Route path="services" element={<Services />} />
             <Route path="Modules" element={<Modules />} />
+            <Route path="apps/:moduleId" element={<ModulePage />} />
+            <Route path="access-tester" element={<AccessTester />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

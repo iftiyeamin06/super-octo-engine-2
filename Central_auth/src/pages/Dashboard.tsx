@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, ShieldCheck, Building2, Activity, Key, AlertTriangle, Clock, Globe } from "lucide-react";
+import { Users, ShieldCheck, Building2, Activity, AlertTriangle } from "lucide-react";
 import StatCard from "../components/StatCard";
 import Badge from "../components/Badge";
 import { api, type DashboardStats, type RecentUser, type AuditActivity } from "../lib/api";
@@ -138,10 +138,7 @@ export default function Dashboard() {
         <StatCard label="Active Sessions" value={stats?.activeSessions ?? 0} icon={Activity}     color="blue" />
         <StatCard label="Roles Defined"   value={stats?.totalRoles ?? 0}     icon={ShieldCheck}  color="green" />
         <StatCard label="Tenants"         value={stats?.totalTenants ?? 0}   icon={Building2}    color="orange" />
-        <StatCard label="Active Services" value={stats?.totalServices ?? 0}  icon={Globe}        color="blue" />
-        <StatCard label="API Keys"        value={stats?.totalApiKeys ?? 0}   icon={Key}          color="purple" />
         <StatCard label="Locked Accounts" value={stats?.lockedUsers ?? 0}    icon={AlertTriangle} color="red" trend={{ value: "accounts locked", positive: false }} />
-        <StatCard label="Pending OTPs"    value={stats?.pendingOtps ?? 0}    icon={Clock}        color="orange" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

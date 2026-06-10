@@ -83,21 +83,9 @@ export const api = {
     revoke:    (id: number, reason?: string) => req(`/sessions/${id}/revoke?reason=${reason ?? ""}`, { method: "DELETE" }),
     revokeAll: (userId: number)      => req(`/sessions/user/${userId}/revoke-all`, { method: "DELETE" }),
   },
-  audit: {
+    audit: {
     list: (params?: Record<string, string>) =>
       req<{ items: AuditEntry[]; total: number }>("/audit?" + new URLSearchParams(params)),
-  },
-  services: {
-    list: () => req<ServiceItem[]>("/services"),
-    create: (data: unknown) => req("/services", { method: "POST", body: JSON.stringify(data) }),
-    update: (id: number, data: unknown) => req(`/services/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    addApiKey: (id: number, data: unknown) => req<{ id: number; description: string; expiresAt?: string }>(`/services/${id}/api-keys`, { method: "POST", body: JSON.stringify(data) }),
-  },
-  apiServiceRoutes: {
-    list: (serviceId?: number) => req<ApiServiceRoute[]>("/api-service-routes" + (serviceId !== undefined ? `?serviceId=${serviceId}` : "")),
-    create: (data: ApiServiceRouteCreatePayload) => req<{ id: number }>("/api-service-routes", { method: "POST", body: JSON.stringify(data) }),
-    update: (id: number, data: unknown) => req<void>(`/api-service-routes/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    remove: (id: number) => req<void>(`/api-service-routes/${id}`, { method: "DELETE" }),
   },
   modules: {
     list: () => req<ModuleListItem[]>("/modules"),
@@ -105,6 +93,15 @@ export const api = {
     create: (data: ModuleSavePayload) => req<void>("/modules", { method: "POST", body: JSON.stringify(data) }),
     update: (id: number, data: ModuleSavePayload) => req<void>(`/modules/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     remove: (id: number) => req<void>(`/modules/${id}`, { method: "DELETE" }),
+    accessible: () => req<ModuleAccessible[]>("/modules/accessible"),
+    permissions: (id: number) => req<number[]>(`/modules/${id}/permissions`),
+    updatePermissions: (id: number, permissionIds: number[]) => req<void>(`/modules/${id}/permissions`, { method: "PUT", body: JSON.stringify({ permissionIds }) }),
+    routes: {
+      list: (moduleId: number) => req<ModuleRouteItem[]>(`/modules/${moduleId}/routes`),
+      create: (moduleId: number, data: ModuleRouteCreatePayload) => req<{ id: number }>(`/modules/${moduleId}/routes`, { method: "POST", body: JSON.stringify(data) }),
+      update: (moduleId: number, routeId: number, data: ModuleRouteUpdatePayload) => req<void>(`/modules/${moduleId}/routes/${routeId}`, { method: "PUT", body: JSON.stringify(data) }),
+      remove: (moduleId: number, routeId: number) => req<void>(`/modules/${moduleId}/routes/${routeId}`, { method: "DELETE" }),
+    },
   },
   departments: {
     list: (tenantId?: number) => req<DepartmentItem[]>(`/departments${tenantId ? `?tenantId=${tenantId}` : ""}`),
@@ -124,7 +121,6 @@ export const api = {
 export interface DashboardStats {
   totalUsers: number; activeUsers: number; lockedUsers: number;
   activeSessions: number; totalRoles: number; totalTenants: number;
-  totalServices: number; totalApiKeys: number; pendingOtps: number;
   totalModules: number; totalPermissions: number;
 }
 export interface RecentUser { id: number; fullName: string; email: string; role?: string; tenant?: string; isActive: boolean; isLocked: boolean; createdAt: string; }
@@ -142,18 +138,12 @@ export interface TenantListItem { id: number; name: string; code: string; descri
 export interface TenantPayload { name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string | null; isActive: boolean; }
 export interface Session { id: number; sessionId: string; appUserId: number; userEmail: string; deviceId?: string; ipAddress?: string; loginAtUtc: string; expiresAtUtc: string; isActive: boolean; }
 export interface AuditEntry { id: number; actionType: string; entityName: string; entityKey: string; userEmail?: string; ipAddress?: string; createdAt: string; }
-export interface ServiceItem { id: number; name: string; code: string; description?: string; baseUrl?: string; isActive: boolean; createdAt: string; apiKeyCount: number; }
-export interface ModuleListItem { id: number; name: string; code: string; route: string; isActive: boolean; createdAt: string; updatedAt?: string | null; }
+export interface ModuleListItem { id: number; name: string; code: string; route: string; parentId?: number | null; isActive: boolean; createdAt: string; updatedAt?: string | null; }
 export interface ModuleDetail { id: number; name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
 export interface ModuleSavePayload { name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
 export interface DepartmentItem { id: number; name: string; code: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
 export interface DesignationItem { id: number; name: string; description?: string; isActive: boolean; tenantId?: number; tenantName?: string; createdAt: string; }
-export interface ApiServiceRoute {
-  id: number; serviceId?: number; serviceName?: string;
-  httpMethod: string; routePattern: string; requiredPermissionCode: string;
-  description?: string; isActive: boolean; createdAt: string;
-}
-export interface ApiServiceRouteCreatePayload {
-  serviceId?: number; httpMethod: string; routePattern: string;
-  requiredPermissionCode: string; description?: string | null;
-}
+export interface ModuleAccessible { id: number; name: string; code: string; route: string; icon?: string; sortOrder: number; }
+export interface ModuleRouteItem { id: number; moduleId: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string; isActive: boolean; createdAt: string; }
+export interface ModuleRouteCreatePayload { httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; }
+export interface ModuleRouteUpdatePayload { httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; isActive: boolean; }

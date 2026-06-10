@@ -20,9 +20,6 @@ public class DashboardController(CentralAuthDbContext db) : ControllerBase
             await db.UserLoginSessions.CountAsync(s => s.IsActive && s.ExpiresAtUtc > now),
             await db.Roles.CountAsync(r => r.IsActive),
             await db.Tenants.CountAsync(t => t.IsActive),
-            await db.Services.CountAsync(s => s.IsActive),
-            await db.ServiceApiKeys.CountAsync(k => k.ExpiresAt == null || k.ExpiresAt > now),
-            await db.OtpVerifications.CountAsync(o => o.IsActive && o.VerifiedAt == null && o.ExpiresAt > now),
             await db.Modules.CountAsync(m => m.IsActive),
             await db.Permissions.CountAsync(p => p.IsActive)
         );
