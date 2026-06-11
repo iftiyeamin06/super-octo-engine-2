@@ -9,4 +9,5 @@ public class ApiServiceRoute : BaseEntity
     public string? Description { get; set; }
 
     public Module Module { get; set; } = null!;
+    public ICollection<UserApiRoute> UserApiRoutes { get; set; } = [];
 }

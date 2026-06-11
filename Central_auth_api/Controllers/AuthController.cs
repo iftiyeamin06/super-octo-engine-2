@@ -68,6 +68,15 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             .Select(rp => rp.Permission!.Code)
             .Distinct()
             .ToList();
+
+        var directPerms = await db.UserPermissions
+            .Where(up => up.AppUserId == user.Id && up.IsActive)
+            .Select(up => up.Permission.Code)
+            .Distinct()
+            .ToListAsync();
+
+        permissions.AddRange(directPerms);
+
         var token = BuildToken(user.Id, user.Email, roles, permissions);
         var expiry = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
 
@@ -165,6 +174,14 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
                 .Distinct()
                 .ToList();
 
+            var directPerms = await db.UserPermissions
+                .Where(up => up.AppUserId == userId && up.IsActive)
+                .Select(up => up.Permission.Code)
+                .Distinct()
+                .ToListAsync();
+
+            permissions.AddRange(directPerms);
+
             bool? hasPermission = null;
             if (!string.IsNullOrWhiteSpace(req.RequiredPermission))
                 hasPermission = permissions.Contains(req.RequiredPermission);
@@ -212,12 +229,17 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             if (isBlacklisted)
                 return Ok(new { granted = false });
 
-            var hasPermission = await db.UserRoles
+            var hasRolePermission = await db.UserRoles
                 .Where(ur => ur.AppUserId == userId && ur.IsActive)
                 .SelectMany(ur => ur.Role!.RolePermissions)
                 .AnyAsync(rp => rp.IsActive && rp.Permission!.Code == req.PermissionCode);
 
-            return Ok(new { granted = hasPermission });
+            var hasDirectPermission = await db.UserPermissions
+                .Where(up => up.AppUserId == userId && up.IsActive)
+                .Select(up => up.Permission.Code)
+                .AnyAsync(code => code == req.PermissionCode);
+
+            return Ok(new { granted = hasRolePermission || hasDirectPermission });
         }
         catch (SecurityTokenException)
         {

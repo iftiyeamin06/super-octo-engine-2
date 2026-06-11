@@ -3,6 +3,7 @@ using System;
 using CentralAuth.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CentralAuth.Api.Migrations
 {
     [DbContext(typeof(CentralAuthDbContext))]
-    partial class CentralAuthDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260611174714_RemoveRoleModule")]
+    partial class RemoveRoleModule
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -812,43 +815,6 @@ namespace CentralAuth.Api.Migrations
                     b.ToTable("auth_token_blacklist", (string)null);
                 });
 
-            modelBuilder.Entity("CentralAuth.Api.Models.UserApiRoute", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("ApiServiceRouteId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("AppUserId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApiServiceRouteId");
-
-                    b.HasIndex("AppUserId", "ApiServiceRouteId")
-                        .IsUnique();
-
-                    b.ToTable("auth_user_api_routes", (string)null);
-                });
-
             modelBuilder.Entity("CentralAuth.Api.Models.UserClaim", b =>
                 {
                     b.Property<long>("Id")
@@ -1341,25 +1307,6 @@ namespace CentralAuth.Api.Migrations
                     b.Navigation("AppUser");
                 });
 
-            modelBuilder.Entity("CentralAuth.Api.Models.UserApiRoute", b =>
-                {
-                    b.HasOne("CentralAuth.Api.Models.ApiServiceRoute", "ApiServiceRoute")
-                        .WithMany("UserApiRoutes")
-                        .HasForeignKey("ApiServiceRouteId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CentralAuth.Api.Models.AppUser", "AppUser")
-                        .WithMany("UserApiRoutes")
-                        .HasForeignKey("AppUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ApiServiceRoute");
-
-                    b.Navigation("AppUser");
-                });
-
             modelBuilder.Entity("CentralAuth.Api.Models.UserClaim", b =>
                 {
                     b.HasOne("CentralAuth.Api.Models.AppUser", "AppUser")
@@ -1469,11 +1416,6 @@ namespace CentralAuth.Api.Migrations
                     b.Navigation("Role");
                 });
 
-            modelBuilder.Entity("CentralAuth.Api.Models.ApiServiceRoute", b =>
-                {
-                    b.Navigation("UserApiRoutes");
-                });
-
             modelBuilder.Entity("CentralAuth.Api.Models.AppUser", b =>
                 {
                     b.Navigation("Claims");
@@ -1485,8 +1427,6 @@ namespace CentralAuth.Api.Migrations
                     b.Navigation("PageAccesses");
 
                     b.Navigation("TenantUsers");
-
-                    b.Navigation("UserApiRoutes");
 
                     b.Navigation("UserPermissions");
 

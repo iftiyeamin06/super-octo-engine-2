@@ -5,7 +5,6 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
 import Roles from "./pages/Roles";
-import Permissions from "./pages/Permissions";
 import Tenants from "./pages/Tenants";
 import Departments from "./pages/Departments";
 import Designations from "./pages/Designations";
@@ -14,6 +13,7 @@ import AuditLogs from "./pages/AuditLogs";
 import Modules from "./pages/Modules";
 import ModulePage from "./pages/ModulePage";
 import AccessTester from "./pages/AccessTester";
+import UserAccess from "./pages/UserAccess";
 
 export default function App() {
   return (
@@ -26,7 +26,6 @@ export default function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="users" element={<Users />} />
             <Route path="roles" element={<Roles />} />
-            <Route path="permissions" element={<Permissions />} />
             <Route path="tenants" element={<Tenants />} />
             <Route path="departments" element={<Departments />} />
             <Route path="designations" element={<Designations />} />
@@ -35,6 +34,7 @@ export default function App() {
             <Route path="Modules" element={<Modules />} />
             <Route path="apps/:moduleId" element={<ModulePage />} />
             <Route path="access-tester" element={<AccessTester />} />
+            <Route path="user-access" element={<UserAccess />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -74,7 +74,7 @@ export default function Users() {
     try {
       if (editingUser) {
         const tenantIds: number[] | null = values.tenantId ? [Number(values.tenantId)] : null;
-        const roleIds:   number[]         = values.roleIds.map((id) => Number(id));
+        const roleIds = roles.filter(r => editingUser.roles.includes(r.name)).map(r => r.id);
         const payload: Parameters<typeof api.users.update>[1] = {
           firstName: values.firstName,
           lastName: values.lastName,
@@ -91,7 +91,6 @@ export default function Users() {
         await api.users.update(editingUser.id, payload);
       } else {
         const tenantIds: number[] = values.tenantId ? [Number(values.tenantId)] : [];
-        const roleIds:   number[] = values.roleIds.map((id) => Number(id));
         await api.users.create({
           firstName: values.firstName, lastName: values.lastName,
           email: values.email, userName: values.userName, password: values.password,
@@ -99,7 +98,7 @@ export default function Users() {
           tenantIds,
           departmentId: values.departmentId ? Number(values.departmentId) : null,
           designationId: values.designationId ? Number(values.designationId) : null,
-          roleIds,
+          roleIds: [],
         });
       }
       clearAccessibleModulesCache();
@@ -285,7 +284,6 @@ export default function Users() {
                 key={editingUser ? `edit-${editingUser.id}` : "create"}
                 initialData={editingUser}
                 tenants={tenants}
-                roles={roles}
                 departments={departments}
                 designations={designations}
                 saving={saving}
@@ -325,6 +323,7 @@ export default function Users() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

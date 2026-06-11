@@ -21,7 +21,7 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
 
         if (tenantId.HasValue) q = q.Where(r => r.TenantId == tenantId || r.TenantId == null);
 
-        return await q.OrderBy(r => r.Name).Select(r => new RoleListDto(
+        return await q.Where(r => r.IsActive).OrderBy(r => r.Name).Select(r => new RoleListDto(
             r.Id, r.Name, r.Description, r.IsActive, r.IsSystem,
             r.TenantId, r.Tenant != null ? r.Tenant.Name : null,
             r.UserRoles.Count(ur => ur.IsActive),
@@ -35,8 +35,7 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
         var role = await db.Roles
             .Include(r => r.Tenant)
             .Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
-            .Include(r => r.RoleModules).ThenInclude(rm => rm.Module)
-            .FirstOrDefaultAsync(r => r.Id == id);
+            .FirstOrDefaultAsync(r => r.Id == id && r.IsActive);
 
         if (role is null) return NotFound();
 
@@ -46,9 +45,7 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
                 rp.Permission.Id, rp.Permission.Code, rp.Permission.Name,
                 rp.Permission.Description, rp.Permission.GroupName,
                 rp.Permission.IsSystem, rp.Permission.IsActive)).ToList(),
-            role.RoleModules.Where(rm => rm.IsActive).Select(rm => new ModuleDto(
-                rm.Module.Id, rm.Module.Name, rm.Module.Code, rm.Module.Route,
-                rm.Module.Icon, rm.Module.SortOrder, rm.Module.ParentId, rm.Module.IsActive)).ToList());
+            []);
     }
 
     [HttpPost]
@@ -62,8 +59,6 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
 
         foreach (var pid in dto.PermissionIds)
             db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
-        foreach (var mid in dto.ModuleIds ?? [])
-            db.RoleModules.Add(new RoleModule { RoleId = role.Id, ModuleId = mid });
 
         await db.SaveChangesAsync();
         return CreatedAtAction(nameof(GetById), new { id = role.Id }, new { role.Id });
@@ -74,7 +69,6 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
     {
         var role = await db.Roles
             .Include(r => r.RolePermissions)
-            .Include(r => r.RoleModules)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (role is null) return NotFound();
@@ -84,12 +78,9 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
         role.IsActive = dto.IsActive; role.UpdatedAt = DateTime.UtcNow;
 
         db.RolePermissions.RemoveRange(role.RolePermissions);
-        db.RoleModules.RemoveRange(role.RoleModules);
 
         foreach (var pid in dto.PermissionIds)
             db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
-        foreach (var mid in dto.ModuleIds ?? [])
-            db.RoleModules.Add(new RoleModule { RoleId = role.Id, ModuleId = mid });
 
         await db.SaveChangesAsync();
         return NoContent();

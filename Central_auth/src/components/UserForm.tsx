@@ -2,7 +2,6 @@ import { useState, type ChangeEvent } from "react";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import type {
   TenantListItem,
-  RoleListItem,
   DepartmentItem,
   DesignationItem,
   UserListItem,
@@ -15,7 +14,6 @@ import {
 interface UserFormProps {
   initialData: UserListItem | null;
   tenants: TenantListItem[];
-  roles: RoleListItem[];
   departments: DepartmentItem[];
   designations: DesignationItem[];
   saving: boolean;
@@ -30,7 +28,6 @@ const inputCls =
 export default function UserForm({
   initialData,
   tenants,
-  roles,
   departments,
   designations,
   saving,
@@ -40,7 +37,7 @@ export default function UserForm({
 }: UserFormProps) {
   const isEdit = Boolean(initialData);
   const [values, setValues] = useState<UserFormValues>(() =>
-    buildInitialValues(initialData, roles),
+    buildInitialValues(initialData),
   );
   const [showPwd, setShowPwd] = useState(false);
 
@@ -146,27 +143,6 @@ export default function UserForm({
               </option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-foreground mb-1">Roles</label>
-          <select
-            multiple
-            value={values.roleIds.map(String)}
-            onChange={(e) =>
-              set(
-                "roleIds",
-                Array.from(e.target.selectedOptions, (o) => Number(o.value)),
-              )
-            }
-            className={`${inputCls} h-20`}
-          >
-            {roles.map((r) => (
-              <option key={r.id} value={String(r.id)}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground mt-0.5">Hold Ctrl to select multiple</p>
         </div>
       </div>
 

@@ -10,6 +10,5 @@ public class Role : BaseEntity
     public Tenant? Tenant { get; set; }
     public ICollection<UserRole> UserRoles { get; set; } = [];
     public ICollection<RolePermission> RolePermissions { get; set; } = [];
-    public ICollection<RoleModule> RoleModules { get; set; } = [];
     public ICollection<RoleClaim> Claims { get; set; } = [];
 }

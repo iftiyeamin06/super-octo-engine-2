@@ -57,6 +57,17 @@ export const api = {
     lock:   (id: number)             => req(`/users/${id}/lock`, { method: "PATCH" }),
     unlock: (id: number)             => req(`/users/${id}/unlock`, { method: "PATCH" }),
     delete: (id: number)             => req(`/users/${id}`, { method: "DELETE" }),
+    permissions: (id: number)        => req<number[]>(`/users/${id}/permissions`),
+    updatePermissions: (id: number, permissionIds: number[]) =>
+      req<void>(`/users/${id}/permissions`, { method: "PUT", body: JSON.stringify({ permissionIds }) }),
+    updateRoles: (id: number, roleIds: number[]) =>
+      req<void>(`/users/${id}/roles`, { method: "PUT", body: JSON.stringify({ roleIds }) }),
+    moduleAccesses: (id: number) => req<number[]>(`/users/${id}/modules`),
+    updateModuleAccesses: (id: number, moduleIds: number[]) =>
+      req<void>(`/users/${id}/modules`, { method: "PUT", body: JSON.stringify({ moduleIds }) }),
+    routeAccesses: (id: number) => req<number[]>(`/users/${id}/routes`),
+    updateRouteAccesses: (id: number, routeIds: number[]) =>
+      req<void>(`/users/${id}/routes`, { method: "PUT", body: JSON.stringify({ routeIds }) }),
   },
   roles: {
     list:   (tenantId?: number)      => req<RoleListItem[]>(`/roles${tenantId ? `?tenantId=${tenantId}` : ""}`),
@@ -115,6 +126,12 @@ export const api = {
     update: (id: number, data: unknown) => req(`/designations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (id: number) => req(`/designations/${id}`, { method: "DELETE" }),
   },
+  routes: {
+    list: (moduleId?: number) => req<RouteListItem[]>(`/routes${moduleId ? `?moduleId=${moduleId}` : ""}`),
+    create: (data: RouteCreatePayload) => req<{ id: number }>("/routes", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: number, data: RouteUpdatePayload) => req<void>(`/routes/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id: number) => req<void>(`/routes/${id}`, { method: "DELETE" }),
+  },
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -147,3 +164,6 @@ export interface ModuleAccessible { id: number; name: string; code: string; rout
 export interface ModuleRouteItem { id: number; moduleId: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string; isActive: boolean; createdAt: string; }
 export interface ModuleRouteCreatePayload { httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; }
 export interface ModuleRouteUpdatePayload { httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; isActive: boolean; }
+export interface RouteListItem { id: number; moduleId: number; moduleName: string; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string; isActive: boolean; createdAt: string; }
+export interface RouteCreatePayload { moduleId: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; }
+export interface RouteUpdatePayload { moduleId: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; isActive: boolean; }

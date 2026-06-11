@@ -1,4 +1,4 @@
-import type { UserListItem, RoleListItem } from "../lib/api";
+import type { UserListItem } from "../lib/api";
 
 export interface UserFormValues {
   firstName: string;
@@ -32,10 +32,8 @@ export const emptyUserForm: UserFormValues = {
 
 export function buildInitialValues(
   user: UserListItem | null,
-  roles: RoleListItem[],
 ): UserFormValues {
   if (!user) return { ...emptyUserForm };
-  const roleIds = roles.filter((r) => user.roles.includes(r.name)).map((r) => r.id);
   return {
     firstName: user.firstName,
     lastName: user.lastName,
@@ -48,6 +46,6 @@ export function buildInitialValues(
     departmentId: user.departmentId ? String(user.departmentId) : "",
     designationId: user.designationId ? String(user.designationId) : "",
     isActive: user.isActive,
-    roleIds,
+    roleIds: [],
   };
 }

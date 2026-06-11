@@ -15,7 +15,6 @@ public class Module : BaseEntity
     public Module? Parent { get; set; }
     public ICollection<Module> Children { get; set; } = [];
     public ICollection<Page> Pages { get; set; } = [];
-    public ICollection<RoleModule> RoleModules { get; set; } = [];
     public ICollection<UserModuleAccess> UserModuleAccesses { get; set; } = [];
     public ICollection<ModulePermission> ModulePermissions { get; set; } = [];
     public ICollection<ApiServiceRoute> ApiServiceRoutes { get; set; } = [];

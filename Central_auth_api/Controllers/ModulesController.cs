@@ -91,16 +91,42 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         if (uidClaim is null || !long.TryParse(uidClaim, out var userId))
             return [];
 
-        var userPermissionIds = await db.UserRoles
+        var rolePermIds = await db.UserRoles
             .Where(ur => ur.AppUserId == userId)
             .SelectMany(ur => ur.Role.RolePermissions)
             .Select(rp => rp.PermissionId)
             .Distinct()
             .ToListAsync();
 
+        var directPermIds = await db.UserPermissions
+            .Where(up => up.AppUserId == userId)
+            .Select(up => up.PermissionId)
+            .ToListAsync();
+
+        var userPermissionIds = rolePermIds.Union(directPermIds).Distinct().ToList();
+
+        var permModuleIds = await db.ModulePermissions
+            .Where(mp => userPermissionIds.Contains(mp.PermissionId))
+            .Select(mp => mp.ModuleId)
+            .Distinct()
+            .ToListAsync();
+
+        var explicitModuleIds = await db.UserModuleAccesses
+            .Where(uma => uma.AppUserId == userId && uma.IsActive)
+            .Select(uma => uma.ModuleId)
+            .ToListAsync();
+
+        var routeModuleIds = await db.UserApiRoutes
+            .Where(ur => ur.AppUserId == userId && ur.IsActive)
+            .Select(ur => ur.ApiServiceRoute.ModuleId)
+            .Distinct()
+            .ToListAsync();
+
+        var allModuleIds = permModuleIds.Union(explicitModuleIds).Union(routeModuleIds).Distinct().ToList();
+
         return await db.Modules
             .AsNoTracking()
-            .Where(m => m.IsActive && m.ModulePermissions.Any(mp => userPermissionIds.Contains(mp.PermissionId)))
+            .Where(m => m.IsActive && allModuleIds.Contains(m.Id))
             .OrderBy(m => m.SortOrder)
             .ThenBy(m => m.Name)
             .Select(m => new ModuleAccessibleDto(m.Id, m.Name, m.Code, m.Route, m.Icon, m.SortOrder))

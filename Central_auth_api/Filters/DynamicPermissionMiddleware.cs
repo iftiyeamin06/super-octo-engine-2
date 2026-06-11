@@ -54,6 +54,21 @@ public class DynamicPermissionMiddleware
             return;
         }
 
+        // Direct route grant bypass — skip permission check if user has explicit route access
+        var uidClaim = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (uidClaim is not null && long.TryParse(uidClaim, out var userId))
+        {
+            using var directScope = scopeFactory.CreateScope();
+            var directDb = directScope.ServiceProvider.GetRequiredService<CentralAuthDbContext>();
+            var hasDirectGrant = await directDb.UserApiRoutes
+                .AnyAsync(ur => ur.AppUserId == userId && ur.ApiServiceRouteId == match.Id && ur.IsActive);
+            if (hasDirectGrant)
+            {
+                await _next(context);
+                return;
+            }
+        }
+
         var hasPermission = user.HasClaim(c =>
             c.Type == "permission" && c.Value == match.RequiredPermissionCode);
 
@@ -84,6 +99,7 @@ public class DynamicPermissionMiddleware
             .Where(r => r.IsActive)
             .Select(r => new CachedRoute
             {
+                Id = r.Id,
                 HttpMethod = r.HttpMethod,
                 RoutePattern = r.RoutePattern,
                 RequiredPermissionCode = r.RequiredPermissionCode
@@ -122,6 +138,7 @@ public class DynamicPermissionMiddleware
 
     private class CachedRoute
     {
+        public long Id { get; set; }
         public string HttpMethod { get; set; } = string.Empty;
         public string RoutePattern { get; set; } = string.Empty;
         public string RequiredPermissionCode { get; set; } = string.Empty;

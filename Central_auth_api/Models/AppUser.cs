@@ -28,4 +28,6 @@ public class AppUser : BaseEntity
     public ICollection<UserModuleAccess> ModuleAccesses { get; set; } = [];
     public ICollection<UserPageAccess> PageAccesses { get; set; } = [];
     public ICollection<TenantUser> TenantUsers { get; set; } = [];
+    public ICollection<UserPermission> UserPermissions { get; set; } = [];
+    public ICollection<UserApiRoute> UserApiRoutes { get; set; } = [];
 }

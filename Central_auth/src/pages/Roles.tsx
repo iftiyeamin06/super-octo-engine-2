@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Plus, Shield, Users, Lock, Trash2, X, Loader2, RefreshCw, Pencil } from "lucide-react";
+import { Plus, Shield, Users, Lock, Trash2, X, Loader2, RefreshCw, Pencil, ChevronDown, ChevronRight } from "lucide-react";
 import Badge from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
 import { cn } from "../lib/utils";
-import { api, type RoleListItem, type RoleDetail, type Permission } from "../lib/api";
+import { api, type RoleListItem, type RoleDetail, type Permission, type ModuleListItem, type RouteListItem } from "../lib/api";
 import { clearAccessibleModulesCache } from "../lib/auth";
 
 const COLORS = ["purple", "blue", "green", "orange", "red", "teal"];
@@ -21,6 +21,14 @@ const iconColor: Record<string, string> = {
 };
 function pickColor(idx: number) { return COLORS[idx % COLORS.length]; }
 
+const METHOD_COLORS: Record<string, string> = {
+  GET:    "bg-emerald-500/10 text-emerald-600 border-emerald-200",
+  POST:   "bg-blue-500/10 text-blue-600 border-blue-200",
+  PUT:    "bg-orange-500/10 text-orange-600 border-orange-200",
+  PATCH:  "bg-yellow-500/10 text-yellow-600 border-yellow-200",
+  DELETE: "bg-red-500/10 text-red-600 border-red-200",
+};
+
 const emptyForm = { name: "", description: "", isActive: true };
 
 export default function Roles() {
@@ -30,8 +38,10 @@ export default function Roles() {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
-  const [permGroups, setPermGroups] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [allModules, setAllModules] = useState<ModuleListItem[]>([]);
+  const [allRoutes, setAllRoutes] = useState<RouteListItem[]>([]);
+  const [expandedModules, setExpandedModules] = useState<string[]>([]);
 
   const [editingRole, setEditingRole] = useState<RoleDetail | null>(null);
 
@@ -48,10 +58,10 @@ export default function Roles() {
 
   useEffect(() => {
     loadRoles();
-    Promise.all([api.permissions.list(), api.permissions.groups()]).then(([perms, groups]) => {
+    Promise.all([api.permissions.list(), api.modules.list(), api.routes.list()]).then(([perms, mods, routes]) => {
       setAllPermissions(perms);
-      setPermGroups(groups);
-      setExpandedGroups(groups.slice(0, 3));
+      setAllModules(mods);
+      setAllRoutes(routes);
     }).catch(() => {});
   }, []);
 
@@ -84,6 +94,22 @@ export default function Roles() {
     setExpandedGroups(g => g.includes(group) ? g.filter(x => x !== group) : [...g, group]);
   }
 
+  function toggleModulePerms(moduleName: string) {
+    const ids = allPermissions.filter(p => p.groupName === moduleName).map(p => p.id);
+    if (ids.length === 0) return;
+    const allSelected = ids.every(id => selectedPerms.includes(id));
+    setSelectedPerms(prev => allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]);
+  }
+
+  function toggleRoutePerm(code: string) {
+    const p = allPermissions.find(p => p.code === code);
+    if (p) togglePerm(p.id);
+  }
+
+  function toggleModuleExpand(name: string) {
+    setExpandedModules(g => g.includes(name) ? g.filter(x => x !== name) : [...g, name]);
+  }
+
   async function save() {
     setSaving(true); setFormError(null);
     try {
@@ -93,7 +119,6 @@ export default function Roles() {
           description: form.description || null,
           isActive: form.isActive,
           permissionIds: selectedPerms,
-          moduleIds: [],
         });
       } else {
         await api.roles.create({
@@ -112,25 +137,27 @@ export default function Roles() {
 
   async function deleteRole(id: number) {
     if (!confirm("Delete this role?")) return;
-    await api.roles.delete(id).catch(() => {});
+    await api.roles.delete(id);
     clearAccessibleModulesCache();
     setSelected(null);
     loadRoles();
   }
 
-  // derive groups: use server-provided groups, fall back to code prefix
-  const effectiveGroups = permGroups.length > 0
-    ? permGroups
-    : [...new Set(allPermissions.map(p => p.groupName ?? p.code.split('.')[0]))];
-
-  const groupedPerms = effectiveGroups.map(g => ({
-    group: g,
-    perms: allPermissions.filter(p => (p.groupName ?? p.code.split('.')[0]) === g),
-  }));
-
   const selectedIds = selected?.permissions.map(p => p.id) ?? [];
   const totalPerms = allPermissions.length;
   const coverage = totalPerms > 0 ? Math.round((selectedIds.length / totalPerms) * 100) : 0;
+
+  // permission code → id lookup
+  const permIdByCode = Object.fromEntries(allPermissions.map(p => [p.code, p.id]));
+
+  const allModuleNodes = allModules.map(m => {
+    const routes = allRoutes.filter(r => r.moduleId === m.id && r.isActive);
+    const permIds = allPermissions.filter(p => p.groupName === m.name).map(p => p.id);
+    return { module: m, routes, permIds };
+  });
+
+  // modules with permissions or routes (read-only panel)
+  const moduleNodes = allModuleNodes.filter(x => x.permIds.length > 0 || x.routes.length > 0);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -237,10 +264,10 @@ export default function Roles() {
 
             <div className="bg-card rounded-xl border overflow-hidden">
               <div className="px-5 py-4 border-b">
-                <h3 className="text-sm font-semibold text-foreground">Permissions</h3>
+                <h3 className="text-sm font-semibold text-foreground">Module Access</h3>
               </div>
               <div className="divide-y max-h-96 overflow-y-auto">
-                {groupedPerms.length === 0 ? (
+                {moduleNodes.length === 0 ? (
                   <div className="px-5 py-4 space-y-2">
                     {selected.permissions.map(p => (
                       <div key={p.id} className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-100">
@@ -256,37 +283,53 @@ export default function Roles() {
                       <p className="text-center text-sm text-muted-foreground py-4">No permissions assigned</p>
                     )}
                   </div>
-                ) : groupedPerms.filter(g => g.perms.length > 0).map(({ group, perms }) => {
-                  const granted = perms.filter(p => selectedIds.includes(p.id));
-                  const isExpanded = expandedGroups.includes(group);
+                ) : moduleNodes.map(({ module, routes, permIds }) => {
+                  const routePermIds = routes.map(r => permIdByCode[r.requiredPermissionCode]).filter(Boolean) as number[];
+                  const allModulePermIds = [...new Set([...permIds, ...routePermIds])];
+                  const granted = allModulePermIds.filter(id => selectedIds.includes(id));
+                  const isExpanded = expandedGroups.includes(module.name);
                   return (
-                    <div key={group}>
-                      <button onClick={() => toggleGroup(group)}
+                    <div key={module.id}>
+                      <button onClick={() => toggleGroup(module.name)}
                         className="w-full flex items-center justify-between px-5 py-3 hover:bg-muted/30 transition-colors">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">{group}</span>
-                          <span className="text-xs text-muted-foreground">({granted.length}/{perms.length})</span>
-                          {granted.length === perms.length && <Badge variant="success">Full</Badge>}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs text-muted-foreground flex-shrink-0">{isExpanded ? "▼" : "▶"}</span>
+                          <span className="text-sm font-medium text-foreground truncate">{module.name}</span>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">({granted.length}/{allModulePermIds.length} pages)</span>
+                          {granted.length === allModulePermIds.length && <Badge variant="success">Full</Badge>}
                           {granted.length === 0 && <Badge variant="outline">None</Badge>}
                         </div>
-                        <span className="text-muted-foreground text-xs">{isExpanded ? "▲" : "▼"}</span>
                       </button>
                       {isExpanded && (
-                        <div className="px-5 pb-3 space-y-2">
-                          {perms.map(p => {
-                            const has = selectedIds.includes(p.id);
+                        <div className="px-5 pb-3 space-y-1.5">
+                          {routes.map(r => {
+                            const permId = permIdByCode[r.requiredPermissionCode];
+                            if (!permId) return null;
+                            const has = selectedIds.includes(permId);
                             return (
-                              <div key={p.id} className={cn("flex items-center gap-3 p-3 rounded-lg border",
-                                has ? "bg-emerald-50 border-emerald-100" : "bg-muted/30 border-transparent")}>
+                              <div key={r.id} className={cn("flex items-center gap-3 p-2 rounded-lg",
+                                has ? "bg-emerald-50 border border-emerald-100" : "bg-muted/30")}>
                                 <span className={cn("w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0",
                                   has ? "bg-emerald-500 text-white" : "bg-muted border")}>
                                   {has && "✓"}
                                 </span>
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium text-foreground">{p.name}</p>
-                                  <p className="text-xs text-muted-foreground">{p.description}</p>
-                                </div>
-                                <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{p.code}</code>
+                                <span className={cn("inline-flex px-1.5 py-0.5 rounded text-xs font-mono font-semibold border",
+                                  METHOD_COLORS[r.httpMethod] || "bg-muted text-muted-foreground")}>{r.httpMethod}</span>
+                                <code className="text-xs font-mono text-foreground truncate">{r.routePattern}</code>
+                                {r.description && <span className="text-xs text-muted-foreground truncate ml-auto">{r.description}</span>}
+                              </div>
+                            );
+                          })}
+                          {allPermissions.filter(p => p.groupName === module.name && !routePermIds.includes(p.id)).map(p => {
+                            const has = selectedIds.includes(p.id);
+                            return (
+                              <div key={p.id} className={cn("flex items-center gap-3 p-2 rounded-lg",
+                                has ? "bg-emerald-50 border border-emerald-100" : "bg-muted/30")}>
+                                <span className={cn("w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0",
+                                  has ? "bg-emerald-500 text-white" : "bg-muted border")}>
+                                  {has && "✓"}
+                                </span>
+                                <span className="text-xs text-foreground">{p.name}</span>
                               </div>
                             );
                           })}
@@ -325,36 +368,73 @@ export default function Roles() {
                   className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
               </div>
 
-              {allPermissions.length > 0 && (
+              {allModuleNodes.length > 0 && (
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-2">
-                    Permissions <span className="text-muted-foreground font-normal">({selectedPerms.length} selected)</span>
+                    Module Access <span className="text-muted-foreground font-normal">({selectedPerms.length} permissions)</span>
                   </label>
-                  <div className="border rounded-lg divide-y max-h-56 overflow-y-auto">
-                    {groupedPerms.filter(g => g.perms.length > 0).map(({ group, perms }) => (
-                      <div key={group}>
-                        <div className="px-3 py-2 bg-muted/30 flex items-center justify-between">
-                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{group}</span>
-                          <button type="button" onClick={() => {
-                            const ids = perms.map(p => p.id);
-                            const allSelected = ids.every(id => selectedPerms.includes(id));
-                            setSelectedPerms(prev => allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]);
-                          }} className="text-xs text-primary hover:underline">
-                            {perms.every(p => selectedPerms.includes(p.id)) ? "Deselect all" : "Select all"}
-                          </button>
-                        </div>
-                        {perms.map(p => (
-                          <label key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/30 cursor-pointer">
-                            <input type="checkbox" checked={selectedPerms.includes(p.id)}
-                              onChange={() => togglePerm(p.id)} className="rounded" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-foreground">{p.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{p.description}</p>
+                  <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+                    {allModuleNodes.map(({ module, routes, permIds }) => {
+                      const routePermIds = routes.map(r => permIdByCode[r.requiredPermissionCode]).filter(Boolean) as number[];
+                      const allModulePermIds = [...new Set([...permIds, ...routePermIds])];
+                      const selectedCount = allModulePermIds.filter(id => selectedPerms.includes(id)).length;
+                      const allSelected = allModulePermIds.length > 0 && selectedCount === allModulePermIds.length;
+                      const isExpanded = expandedModules.includes(module.name);
+                      return (
+                        <div key={module.id}>
+                          <div className="flex items-center justify-between px-3 py-2 bg-muted/30">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <button type="button" onClick={() => toggleModuleExpand(module.name)}
+                                className="text-muted-foreground hover:text-foreground p-0.5 flex-shrink-0">
+                                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                              </button>
+                              <span className="text-xs font-semibold text-foreground truncate">{module.name}</span>
+                              <span className="text-xs text-muted-foreground flex-shrink-0">{selectedCount}/{allModulePermIds.length}</span>
                             </div>
-                          </label>
-                        ))}
-                      </div>
-                    ))}
+                            <button type="button" onClick={() => toggleModulePerms(module.name)}
+                              className="text-xs text-primary hover:underline flex-shrink-0 ml-2">
+                              {allSelected ? "Deselect all" : "Select all"}
+                            </button>
+                          </div>
+                          {isExpanded && (
+                            <div className="px-3 pb-2 pt-1 space-y-1">
+                              {routes.map(r => {
+                                const permId = permIdByCode[r.requiredPermissionCode];
+                                if (!permId) return null;
+                                const checked = selectedPerms.includes(permId);
+                                return (
+                                  <label key={r.id}
+                                    className={cn("flex items-center gap-2 p-1.5 rounded cursor-pointer transition-colors",
+                                      checked ? "bg-emerald-50" : "hover:bg-muted/30")}>
+                                    <input type="checkbox" checked={checked}
+                                      onChange={() => toggleRoutePerm(r.requiredPermissionCode)} className="rounded" />
+                                    <span className={cn("inline-flex px-1.5 py-0.5 rounded text-xs font-mono font-semibold border",
+                                      METHOD_COLORS[r.httpMethod] || "bg-muted text-muted-foreground")}>{r.httpMethod}</span>
+                                    <code className="text-xs font-mono text-foreground truncate">{r.routePattern}</code>
+                                    {r.description && <span className="text-xs text-muted-foreground truncate ml-auto hidden sm:inline">{r.description}</span>}
+                                  </label>
+                                );
+                              })}
+                              {allPermissions.filter(p => p.groupName === module.name && !routePermIds.includes(p.id)).map(p => {
+                                const checked = selectedPerms.includes(p.id);
+                                return (
+                                  <label key={p.id}
+                                    className={cn("flex items-center gap-2 p-1.5 rounded cursor-pointer transition-colors",
+                                      checked ? "bg-emerald-50" : "hover:bg-muted/30")}>
+                                    <input type="checkbox" checked={checked}
+                                      onChange={() => togglePerm(p.id)} className="rounded" />
+                                    <span className="text-xs text-foreground">{p.name}</span>
+                                  </label>
+                                );
+                              })}
+                              {routes.length === 0 && allPermissions.filter(p => p.groupName === module.name && !routePermIds.includes(p.id)).length === 0 && (
+                                <div className="text-xs text-muted-foreground py-2 text-center">No pages or permissions</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

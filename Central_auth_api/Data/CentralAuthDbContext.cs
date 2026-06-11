@@ -20,7 +20,6 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
     public DbSet<Page> Pages => Set<Page>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
-    public DbSet<RoleModule> RoleModules => Set<RoleModule>();
     public DbSet<ModulePermission> ModulePermissions => Set<ModulePermission>();
     public DbSet<RoleClaim> RoleClaims => Set<RoleClaim>();
     public DbSet<UserClaim> UserClaims => Set<UserClaim>();
@@ -33,6 +32,8 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
     public DbSet<ApiServiceRoute> ApiServiceRoutes => Set<ApiServiceRoute>();
     public DbSet<AuditHistory> AuditHistories => Set<AuditHistory>();
     public DbSet<UserDatatablePreference> UserDatatablePreferences => Set<UserDatatablePreference>();
+    public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
+    public DbSet<UserApiRoute> UserApiRoutes => Set<UserApiRoute>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -50,7 +51,6 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<Page>().ToTable("auth_pages");
         mb.Entity<UserRole>().ToTable("auth_userroles");
         mb.Entity<RolePermission>().ToTable("auth_rolepermissions");
-        mb.Entity<RoleModule>().ToTable("auth_rolemodules");
         mb.Entity<ModulePermission>().ToTable("auth_module_permissions");
         mb.Entity<RoleClaim>().ToTable("auth_role_claims");
         mb.Entity<UserModuleAccess>().ToTable("auth_usermoduleaccesses");
@@ -61,6 +61,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<OtpVerification>().ToTable("auth_otp_verifications");
         mb.Entity<AuditHistory>().ToTable("auth_audithistories");
         mb.Entity<UserDatatablePreference>().ToTable("auth_user_datatable_preferences");
+        mb.Entity<UserPermission>().ToTable("auth_userpermissions");
 
         // Unique constraints
         mb.Entity<AppUser>().HasIndex(e => e.NormalizedEmail).IsUnique();
@@ -75,7 +76,6 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<Module>().HasIndex(e => e.Code).IsUnique();
         mb.Entity<UserRole>().HasIndex(e => new { e.AppUserId, e.RoleId }).IsUnique();
         mb.Entity<RolePermission>().HasIndex(e => new { e.RoleId, e.PermissionId }).IsUnique();
-        mb.Entity<RoleModule>().HasIndex(e => new { e.RoleId, e.ModuleId }).IsUnique();
         mb.Entity<ModulePermission>().HasIndex(e => new { e.ModuleId, e.PermissionId }).IsUnique();
         mb.Entity<UserModuleAccess>().HasIndex(e => new { e.AppUserId, e.ModuleId }).IsUnique();
         mb.Entity<UserPageAccess>().HasIndex(e => new { e.AppUserId, e.PageId }).IsUnique();
@@ -109,8 +109,6 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<UserRole>().HasOne(e => e.Role).WithMany(e => e.UserRoles).HasForeignKey(e => e.RoleId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<RolePermission>().HasOne(e => e.Role).WithMany(e => e.RolePermissions).HasForeignKey(e => e.RoleId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<RolePermission>().HasOne(e => e.Permission).WithMany(e => e.RolePermissions).HasForeignKey(e => e.PermissionId).OnDelete(DeleteBehavior.Cascade);
-        mb.Entity<RoleModule>().HasOne(e => e.Role).WithMany(e => e.RoleModules).HasForeignKey(e => e.RoleId).OnDelete(DeleteBehavior.Cascade);
-        mb.Entity<RoleModule>().HasOne(e => e.Module).WithMany(e => e.RoleModules).HasForeignKey(e => e.ModuleId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<ModulePermission>().HasOne(e => e.Module).WithMany(e => e.ModulePermissions).HasForeignKey(e => e.ModuleId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<ModulePermission>().HasOne(e => e.Permission).WithMany(e => e.ModulePermissions).HasForeignKey(e => e.PermissionId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<UserModuleAccess>().HasOne(e => e.AppUser).WithMany(e => e.ModuleAccesses).HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
@@ -130,10 +128,21 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<OtpVerification>().HasOne(e => e.AppUser).WithMany().HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<UserDatatablePreference>().HasOne(e => e.AppUser).WithMany().HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
 
+        // UserPermission
+        mb.Entity<UserPermission>().HasIndex(e => new { e.AppUserId, e.PermissionId }).IsUnique();
+        mb.Entity<UserPermission>().HasOne(e => e.AppUser).WithMany(e => e.UserPermissions).HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
+        mb.Entity<UserPermission>().HasOne(e => e.Permission).WithMany(e => e.UserPermissions).HasForeignKey(e => e.PermissionId).OnDelete(DeleteBehavior.Cascade);
+
         // ApiServiceRoute
         mb.Entity<ApiServiceRoute>().ToTable("auth_api_service_routes");
         mb.Entity<ApiServiceRoute>().HasIndex(e => new { e.HttpMethod, e.RoutePattern }).IsUnique();
         mb.Entity<ApiServiceRoute>().HasOne(e => e.Module).WithMany(e => e.ApiServiceRoutes).HasForeignKey(e => e.ModuleId).OnDelete(DeleteBehavior.Cascade);
+
+        // UserApiRoute
+        mb.Entity<UserApiRoute>().ToTable("auth_user_api_routes");
+        mb.Entity<UserApiRoute>().HasIndex(e => new { e.AppUserId, e.ApiServiceRouteId }).IsUnique();
+        mb.Entity<UserApiRoute>().HasOne(e => e.AppUser).WithMany(e => e.UserApiRoutes).HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
+        mb.Entity<UserApiRoute>().HasOne(e => e.ApiServiceRoute).WithMany(e => e.UserApiRoutes).HasForeignKey(e => e.ApiServiceRouteId).OnDelete(DeleteBehavior.Cascade);
 
         // Audit
         mb.Entity<AuditHistory>().HasOne(e => e.Tenant).WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.SetNull);

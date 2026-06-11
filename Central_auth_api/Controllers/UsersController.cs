@@ -18,11 +18,24 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         if (uidClaim is null || !long.TryParse(uidClaim, out var userId))
             return Unauthorized(new { message = "Authentication required." });
 
-        var roleModuleIds = await db.UserRoles
+        var userPermissionIds = await db.UserRoles
             .Where(ur => ur.AppUserId == userId && ur.IsActive)
-            .SelectMany(ur => ur.Role!.RoleModules)
-            .Where(rm => rm.IsActive)
-            .Select(rm => rm.ModuleId)
+            .SelectMany(ur => ur.Role!.RolePermissions)
+            .Where(rp => rp.IsActive)
+            .Select(rp => rp.PermissionId)
+            .Distinct()
+            .ToListAsync();
+
+        var directPermissionIds = await db.UserPermissions
+            .Where(up => up.AppUserId == userId)
+            .Select(up => up.PermissionId)
+            .ToListAsync();
+
+        var allPermissionIds = userPermissionIds.Union(directPermissionIds).Distinct().ToList();
+
+        var permModuleIds = await db.ModulePermissions
+            .Where(mp => allPermissionIds.Contains(mp.PermissionId))
+            .Select(mp => mp.ModuleId)
             .Distinct()
             .ToListAsync();
 
@@ -31,7 +44,13 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             .Select(uma => uma.ModuleId)
             .ToListAsync();
 
-        var allModuleIds = roleModuleIds.Union(explicitModuleIds).Distinct().ToList();
+        var routeModuleIds = await db.UserApiRoutes
+            .Where(ur => ur.AppUserId == userId && ur.IsActive)
+            .Select(ur => ur.ApiServiceRoute.ModuleId)
+            .Distinct()
+            .ToListAsync();
+
+        var allModuleIds = permModuleIds.Union(explicitModuleIds).Union(routeModuleIds).Distinct().ToList();
 
         var modules = await db.Modules
             .Where(m => allModuleIds.Contains(m.Id) && m.IsActive)
@@ -242,6 +261,118 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         db.UserRoles.RemoveRange(user.UserRoles);
         foreach (var roleId in dto.RoleIds)
             db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
+
+        await db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpPut("{id:long}/roles")]
+    public async Task<ActionResult> UpdateRoles(long id, [FromBody] UserRoleUpdateDto dto)
+    {
+        var user = await db.AppUsers
+            .Include(u => u.UserRoles)
+            .FirstOrDefaultAsync(u => u.Id == id);
+        if (user == null) return NotFound();
+
+        db.UserRoles.RemoveRange(user.UserRoles);
+        foreach (var roleId in dto.RoleIds)
+            db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
+
+        await db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpGet("{id:long}/permissions")]
+    public async Task<ActionResult<List<long>>> GetPermissions(long id)
+    {
+        if (!await db.AppUsers.AnyAsync(u => u.Id == id))
+            return NotFound();
+
+        var ids = await db.UserPermissions
+            .Where(up => up.AppUserId == id && up.IsActive)
+            .Select(up => up.PermissionId)
+            .ToListAsync();
+
+        return Ok(ids);
+    }
+
+    [HttpPut("{id:long}/permissions")]
+    public async Task<ActionResult> UpdatePermissions(long id, [FromBody] UserPermissionUpdateDto dto)
+    {
+        var user = await db.AppUsers
+            .Include(u => u.UserPermissions)
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+        if (user is null) return NotFound();
+
+        db.UserPermissions.RemoveRange(user.UserPermissions);
+
+        foreach (var pid in dto.PermissionIds)
+            db.UserPermissions.Add(new UserPermission { AppUserId = id, PermissionId = pid });
+
+        await db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpGet("{id:long}/modules")]
+    public async Task<ActionResult<List<long>>> GetModuleAccesses(long id)
+    {
+        if (!await db.AppUsers.AnyAsync(u => u.Id == id))
+            return NotFound();
+
+        var ids = await db.UserModuleAccesses
+            .Where(uma => uma.AppUserId == id && uma.IsActive)
+            .Select(uma => uma.ModuleId)
+            .ToListAsync();
+
+        return Ok(ids);
+    }
+
+    [HttpPut("{id:long}/modules")]
+    public async Task<ActionResult> UpdateModuleAccesses(long id, [FromBody] UserModuleAccessUpdateDto dto)
+    {
+        var user = await db.AppUsers
+            .Include(u => u.ModuleAccesses)
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+        if (user is null) return NotFound();
+
+        db.UserModuleAccesses.RemoveRange(user.ModuleAccesses);
+
+        foreach (var mid in dto.ModuleIds)
+            db.UserModuleAccesses.Add(new UserModuleAccess { AppUserId = id, ModuleId = mid });
+
+        await db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpGet("{id:long}/routes")]
+    public async Task<ActionResult<List<long>>> GetRouteAccesses(long id)
+    {
+        if (!await db.AppUsers.AnyAsync(u => u.Id == id))
+            return NotFound();
+
+        var ids = await db.UserApiRoutes
+            .Where(ur => ur.AppUserId == id && ur.IsActive)
+            .Select(ur => ur.ApiServiceRouteId)
+            .ToListAsync();
+
+        return Ok(ids);
+    }
+
+    [HttpPut("{id:long}/routes")]
+    public async Task<ActionResult> UpdateRouteAccesses(long id, [FromBody] UserRouteAccessUpdateDto dto)
+    {
+        var user = await db.AppUsers
+            .Include(u => u.UserApiRoutes)
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+        if (user is null) return NotFound();
+
+        db.UserApiRoutes.RemoveRange(user.UserApiRoutes);
+
+        foreach (var rid in dto.RouteIds)
+            db.UserApiRoutes.Add(new UserApiRoute { AppUserId = id, ApiServiceRouteId = rid });
 
         await db.SaveChangesAsync();
         return NoContent();

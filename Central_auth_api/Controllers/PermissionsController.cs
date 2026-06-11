@@ -22,7 +22,7 @@ public class PermissionsController(CentralAuthDbContext db) : ControllerBase
 
     [HttpGet("groups")]
     public async Task<List<string>> GetGroups() =>
-        await db.Permissions.Where(p => p.GroupName != null)
+        await db.Permissions.Where(p => p.GroupName != null && p.IsActive)
             .Select(p => p.GroupName!).Distinct().OrderBy(g => g).ToListAsync();
 
     [HttpPost]
