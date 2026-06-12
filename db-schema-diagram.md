@@ -52,6 +52,7 @@ erDiagram
         BIGINT Id PK "AUTO_INCREMENT"
         BIGINT TenantId FK "nullable → auth_tenants.Id"
         VARCHAR Name
+        VARCHAR Code
         VARCHAR Description "nullable"
         TINYINT IsActive
         DATETIME CreatedAt
@@ -272,11 +273,12 @@ erDiagram
 
     TOKENBLACKLIST["auth_token_blacklist"] {
         BIGINT Id PK "AUTO_INCREMENT"
-        BIGINT AppUserId FK "nullable → auth_appusers.Id"
         VARCHAR TokenJti UK
+        BIGINT AppUserId FK "nullable → auth_appusers.Id"
         DATETIME ExpiresAt
+        DATETIME RevokedAt "NOT NULL"
+        VARCHAR Reason "nullable"
         TINYINT IsActive
-        DATETIME CreatedAt
     }
 
     PASSWORDRESETTOKEN["auth_password_reset_tokens"] {
@@ -285,6 +287,7 @@ erDiagram
         VARCHAR TokenHash UK
         DATETIME ExpiresAt
         DATETIME? UsedAt "nullable"
+        VARCHAR IpAddress "nullable"
         TINYINT IsActive
         DATETIME CreatedAt
     }
@@ -292,10 +295,14 @@ erDiagram
     OTPVERIFICATION["auth_otp_verifications"] {
         BIGINT Id PK "AUTO_INCREMENT"
         BIGINT AppUserId FK "→ auth_appusers.Id"
-        VARCHAR OtpCode
+        VARCHAR OtpHash
         VARCHAR Purpose
+        VARCHAR DeliveryMethod
+        VARCHAR DeliveredTo
         DATETIME ExpiresAt
         DATETIME? VerifiedAt "nullable"
+        INT FailedAttempts "default 0"
+        VARCHAR IpAddress "nullable"
         TINYINT IsActive
         DATETIME CreatedAt
     }
@@ -303,11 +310,70 @@ erDiagram
     USERDATATABLEPREFERENCE["auth_user_datatable_preferences"] {
         BIGINT Id PK "AUTO_INCREMENT"
         BIGINT AppUserId FK "→ auth_appusers.Id"
-        VARCHAR TableKey
-        LONGTEXT PreferenceJson
+        VARCHAR PreferenceKey
+        LONGTEXT StateJson
         TINYINT IsActive
         DATETIME CreatedAt
         DATETIME UpdatedAt "nullable"
+    }
+
+    TENANTUSER["auth_tenant_users (Junction)"] {
+        BIGINT Id PK "AUTO_INCREMENT"
+        BIGINT AppUserId FK "→ auth_appusers.Id"
+        BIGINT TenantId FK "→ auth_tenants.Id"
+        VARCHAR EmployeeId "nullable"
+        TINYINT IsActive
+        DATETIME CreatedAt
+        DATETIME UpdatedAt "nullable"
+        INT CreatedBy "nullable"
+        INT UpdatedBy "nullable"
+    }
+
+    MODULEPERMISSION["auth_module_permissions (Junction)"] {
+        BIGINT Id PK "AUTO_INCREMENT"
+        BIGINT ModuleId FK "→ auth_modules.Id"
+        BIGINT PermissionId FK "→ auth_permissions.Id"
+        TINYINT IsActive
+        DATETIME CreatedAt
+        DATETIME UpdatedAt "nullable"
+        INT CreatedBy "nullable"
+        INT UpdatedBy "nullable"
+    }
+
+    USERPERMISSION["auth_userpermissions (Junction)"] {
+        BIGINT Id PK "AUTO_INCREMENT"
+        BIGINT AppUserId FK "→ auth_appusers.Id"
+        BIGINT PermissionId FK "→ auth_permissions.Id"
+        TINYINT IsActive
+        DATETIME CreatedAt
+        DATETIME UpdatedAt "nullable"
+        INT CreatedBy "nullable"
+        INT UpdatedBy "nullable"
+    }
+
+    APISEROUTE["auth_api_service_routes"] {
+        BIGINT Id PK "AUTO_INCREMENT"
+        BIGINT ModuleId FK "→ auth_modules.Id"
+        VARCHAR HttpMethod
+        VARCHAR RoutePattern
+        VARCHAR RequiredPermissionCode
+        VARCHAR Description "nullable"
+        TINYINT IsActive
+        DATETIME CreatedAt
+        DATETIME UpdatedAt "nullable"
+        INT CreatedBy "nullable"
+        INT UpdatedBy "nullable"
+    }
+
+    USERAPIROUTE["auth_user_api_routes (Junction)"] {
+        BIGINT Id PK "AUTO_INCREMENT"
+        BIGINT AppUserId FK "→ auth_appusers.Id"
+        BIGINT ApiServiceRouteId FK "→ auth_api_service_routes.Id"
+        TINYINT IsActive
+        DATETIME CreatedAt
+        DATETIME UpdatedAt "nullable"
+        INT CreatedBy "nullable"
+        INT UpdatedBy "nullable"
     }
 
     %% ──────────────── Relationships ────────────────
@@ -316,8 +382,9 @@ erDiagram
     TENANT ||--o{ DESIGNATION : "has many (Restrict)"
     TENANT ||--o{ ROLE : "has many (Restrict)"
     TENANT ||--o{ AUDITHISTORY : "audited (SetNull)"
+    TENANT ||--o{ TENANTUSER : "has users (Restrict)"
 
-    APPUSER ||--o{ USERROLE : "assigned"
+    APPUSER ||--o{ USERROLE : "assigned (Cascade)"
     APPUSER ||--o{ USERLOGINSESSION : "has sessions (Cascade)"
     APPUSER ||--o{ USERCLAIM : "claims (Cascade)"
     APPUSER ||--o{ USERMODULEACCESS : "direct module access (Cascade)"
@@ -327,9 +394,12 @@ erDiagram
     APPUSER ||--o{ OTPVERIFICATION : "OTP verifications (Cascade)"
     APPUSER ||--o{ USERDATATABLEPREFERENCE : "table prefs (Cascade)"
     APPUSER ||--o{ AUDITHISTORY : "performed (SetNull)"
+    APPUSER ||--o{ TENANTUSER : "belongs to tenants (Cascade)"
+    APPUSER ||--o{ USERPERMISSION : "direct permissions (Cascade)"
+    APPUSER ||--o{ USERAPIROUTE : "api routes (Cascade)"
 
-    DEPARTMENT ||--o{ APPUSER : "has staff (SetNull)"
-    DESIGNATION ||--o{ APPUSER : "has staff (SetNull)"
+    DEPARTMENT ||--o{ APPUSER : "has staff (Restrict)"
+    DESIGNATION ||--o{ APPUSER : "has staff (Restrict)"
 
     ROLE ||--o{ USERROLE : "assigned to users (Cascade)"
     ROLE ||--o{ ROLEPERMISSION : "grants (Cascade)"
@@ -337,16 +407,22 @@ erDiagram
     ROLE ||--o{ ROLECLAIM : "claims (Cascade)"
 
     PERMISSION ||--o{ ROLEPERMISSION : "granted via roles (Cascade)"
+    PERMISSION ||--o{ MODULEPERMISSION : "granted to modules (Cascade)"
+    PERMISSION ||--o{ USERPERMISSION : "granted to users (Cascade)"
 
     MODULE ||--o{ PAGE : "contains pages (Cascade)"
     MODULE ||--o{ ROLEMODULE : "accessible by role (Cascade)"
     MODULE ||--o{ USERMODULEACCESS : "accessible by user (Cascade)"
     MODULE ||--o{ MODULE : "parent → child (Self-Ref, Restrict)"
+    MODULE ||--o{ MODULEPERMISSION : "grants permissions (Cascade)"
+    MODULE ||--o{ APISEROUTE : "defines routes (Cascade)"
 
     PAGE ||--o{ USERPAGEACCESS : "accessible by user (Cascade)"
 
     SERVICE ||--o{ SERVICEAPIKEY : "has keys (Cascade)"
     SERVICE ||--o{ AUDITHISTORY : "audited (SetNull)"
+
+    APISEROUTE ||--o{ USERAPIROUTE : "accessible by user (Cascade)"
 ```
 
 ---
@@ -363,13 +439,23 @@ erDiagram
 ### Key Constraints (from `CentralAuthDbContext`)
 
 - **AppUser** — `UNIQUE INDEX` on `(TenantId, NormalizedEmail)` and `(TenantId, NormalizedUserName)`
+- **TenantUser** — `UNIQUE INDEX` on `(TenantId, EmployeeId)` and `(AppUserId, TenantId)`
 - **Role** — `UNIQUE INDEX` on `(TenantId, Name)`
+- **Department** — `UNIQUE INDEX` on `(TenantId, Name)` and `(TenantId, Code)`
+- **Designation** — `UNIQUE INDEX` on `(TenantId, Name)`
 - **Permission** — `UNIQUE INDEX` on `Code`
 - **Module** — `UNIQUE INDEX` on `Code`
 - **UserRole** — `UNIQUE INDEX` on `(AppUserId, RoleId)`
 - **RolePermission** — `UNIQUE INDEX` on `(RoleId, PermissionId)`
+- **ModulePermission** — `UNIQUE INDEX` on `(ModuleId, PermissionId)`
+- **UserPermission** — `UNIQUE INDEX` on `(AppUserId, PermissionId)`
 - **RoleModule** — `UNIQUE INDEX` on `(RoleId, ModuleId)`
 - **UserModuleAccess** — `UNIQUE INDEX` on `(AppUserId, ModuleId)`
 - **UserPageAccess** — `UNIQUE INDEX` on `(AppUserId, PageId)`
 - **UserLoginSession** — `UNIQUE INDEX` on `SessionId`
+- **TokenBlacklist** — `UNIQUE INDEX` on `TokenJti`
+- **PasswordResetToken** — `UNIQUE INDEX` on `TokenHash`
+- **Tenant** — `UNIQUE INDEX` on `Code`
+- **ApiServiceRoute** — `UNIQUE INDEX` on `(HttpMethod, RoutePattern)`
+- **UserApiRoute** — `UNIQUE INDEX` on `(AppUserId, ApiServiceRouteId)`
 - **AuditHistory** — `INDEX` on `(EntityName, EntityKey)`, `(CreatedAt)`, `(ActionType)`

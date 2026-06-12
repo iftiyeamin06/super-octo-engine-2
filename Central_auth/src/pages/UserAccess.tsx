@@ -16,47 +16,33 @@ const METHOD_COLORS: Record<string, string> = {
 };
 
 export default function UserAccess() {
-  // Shared data
   const [modules, setModules] = useState<ModuleListItem[]>([]);
   const [allRoles, setAllRoles] = useState<RoleListItem[]>([]);
   const [allRoutes, setAllRoutes] = useState<RouteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // User selector
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [userSearch, setUserSearch] = useState("");
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
 
-  // Roles
   const [userRoleIds, setUserRoleIds] = useState<number[]>([]);
-  const [roleSaving, setRoleSaving] = useState(false);
-  const [roleError, setRoleError] = useState<string | null>(null);
-  const [roleSuccess, setRoleSuccess] = useState(false);
-
-  // Direct Module Access
   const [directModuleIds, setDirectModuleIds] = useState<number[]>([]);
   const [moduleSearch, setModuleSearch] = useState("");
-  const [moduleSaving, setModuleSaving] = useState(false);
-  const [moduleError, setModuleError] = useState<string | null>(null);
-  const [moduleSuccess, setModuleSuccess] = useState(false);
-
-  // Page Access
   const [directRouteIds, setDirectRouteIds] = useState<number[]>([]);
   const [pageSearch, setPageSearch] = useState("");
-  const [pageSaving, setPageSaving] = useState(false);
-  const [pageError, setPageError] = useState<string | null>(null);
-  const [pageSuccess, setPageSuccess] = useState(false);
   const [expandedModules, setExpandedModules] = useState<string[]>([]);
+
+  const [saving, setSaving] = useState(false);
+  const [saveErrors, setSaveErrors] = useState<{ roles: string | null; modules: string | null; routes: string | null }>({ roles: null, modules: null, routes: null });
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const timerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Cleanup timers on unmount
   useEffect(() => {
     return () => { timerRefs.current.forEach(clearTimeout); };
   }, []);
 
-  // Load shared data
   useEffect(() => {
     Promise.all([
       api.modules.list(),
@@ -73,24 +59,22 @@ export default function UserAccess() {
 
   const selectUserGen = useRef(0);
 
-  // ── Shared ───────────────────────────────────────────────────────────
   function selectUser(user: UserListItem) {
     const gen = ++selectUserGen.current;
     setSelectedUser(user);
     setShowUserDropdown(false);
-    setRoleError(null); setRoleSuccess(false);
-    setModuleError(null); setModuleSuccess(false);
-    setPageError(null); setPageSuccess(false);
+    setSaveErrors({ roles: null, modules: null, routes: null });
+    setSaveSuccess(false);
     setUserRoleIds(allRoles.filter(r => user.roles.includes(r.name)).map(r => r.id));
     api.users.moduleAccesses(user.id).then(data => {
       if (gen === selectUserGen.current) setDirectModuleIds(data);
     }).catch(() => {
-      if (gen === selectUserGen.current) setModuleError("Failed to load module access");
+      if (gen === selectUserGen.current) setSaveErrors(p => ({ ...p, modules: "Failed to load module access" }));
     });
     api.users.routeAccesses(user.id).then(data => {
       if (gen === selectUserGen.current) setDirectRouteIds(data);
     }).catch(() => {
-      if (gen === selectUserGen.current) setPageError("Failed to load route access");
+      if (gen === selectUserGen.current) setSaveErrors(p => ({ ...p, routes: "Failed to load route access" }));
     });
   }
 
@@ -102,42 +86,16 @@ export default function UserAccess() {
     return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email;
   }
 
-  // ── Roles ─────────────────────────────────────────────────────────────
   function toggleUserRole(roleId: number) {
     setUserRoleIds(p => p.includes(roleId) ? p.filter(x => x !== roleId) : [...p, roleId]);
+    setSaveErrors(p => ({ ...p, roles: null }));
   }
 
-  async function saveUserRoles() {
-    if (!selectedUser) return;
-    setRoleSaving(true); setRoleError(null); setRoleSuccess(false);
-    try {
-      await api.users.updateRoles(selectedUser.id, userRoleIds);
-      setRoleSuccess(true);
-      timerRefs.current.push(setTimeout(() => setRoleSuccess(false), 3000));
-    } catch (e: unknown) {
-      setRoleError(e instanceof Error ? e.message : "Failed to save roles");
-    } finally { setRoleSaving(false); }
-  }
-
-  // ── Direct Module Access ─────────────────────────────────────────────
   function toggleModule(id: number) {
     setDirectModuleIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+    setSaveErrors(p => ({ ...p, modules: null }));
   }
 
-  async function saveModuleAccesses() {
-    if (!selectedUser) return;
-    setModuleSaving(true); setModuleError(null); setModuleSuccess(false);
-    try {
-      await api.users.updateModuleAccesses(selectedUser.id, directModuleIds);
-      clearAccessibleModulesCache();
-      setModuleSuccess(true);
-      timerRefs.current.push(setTimeout(() => setModuleSuccess(false), 3000));
-    } catch (e: unknown) {
-      setModuleError(e instanceof Error ? e.message : "Failed to save module access");
-    } finally { setModuleSaving(false); }
-  }
-
-  // ── Page Access ──────────────────────────────────────────────────────
   const routesByModule = modules
     .map(m => ({
       module: m,
@@ -147,6 +105,7 @@ export default function UserAccess() {
 
   function toggleRoute(id: number) {
     setDirectRouteIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+    setSaveErrors(p => ({ ...p, routes: null }));
   }
 
   function toggleAllModuleRoutes(routes: RouteListItem[], checked: boolean) {
@@ -155,19 +114,33 @@ export default function UserAccess() {
       ? [...new Set([...p, ...ids])]
       : p.filter(x => !ids.includes(x))
     );
+    setSaveErrors(p => ({ ...p, routes: null }));
   }
 
-  async function savePageAccesses() {
+  async function saveAll() {
     if (!selectedUser) return;
-    setPageSaving(true); setPageError(null); setPageSuccess(false);
-    try {
-      await api.users.updateRouteAccesses(selectedUser.id, directRouteIds);
-      clearAccessibleModulesCache();
-      setPageSuccess(true);
-      timerRefs.current.push(setTimeout(() => setPageSuccess(false), 3000));
-    } catch (e: unknown) {
-      setPageError(e instanceof Error ? e.message : "Failed to save page access");
-    } finally { setPageSaving(false); }
+    setSaving(true);
+    setSaveErrors({ roles: null, modules: null, routes: null });
+    setSaveSuccess(false);
+
+    const [rolesResult, modulesResult, routesResult] = await Promise.allSettled([
+      api.users.updateRoles(selectedUser.id, userRoleIds),
+      api.users.updateModuleAccesses(selectedUser.id, directModuleIds),
+      api.users.updateRouteAccesses(selectedUser.id, directRouteIds),
+    ]);
+
+    const errors = {
+      roles: rolesResult.status === "rejected" ? (rolesResult.reason instanceof Error ? rolesResult.reason.message : "Failed to save roles") : null,
+      modules: modulesResult.status === "rejected" ? (modulesResult.reason instanceof Error ? modulesResult.reason.message : "Failed to save module access") : null,
+      routes: routesResult.status === "rejected" ? (routesResult.reason instanceof Error ? routesResult.reason.message : "Failed to save route access") : null,
+    };
+    setSaveErrors(errors);
+    if (modulesResult.status === "fulfilled" || routesResult.status === "fulfilled") clearAccessibleModulesCache();
+    if (!errors.roles && !errors.modules && !errors.routes) {
+      setSaveSuccess(true);
+      timerRefs.current.push(setTimeout(() => setSaveSuccess(false), 3000));
+    }
+    setSaving(false);
   }
 
   return (
@@ -177,7 +150,7 @@ export default function UserAccess() {
         <p className="text-sm text-muted-foreground">Configure roles, module access, and page-level permissions for a user</p>
       </div>
 
-      {/* ── User Selector (shared, above all sections) ─────────────── */}
+      {/* ── User Selector ─────────────────────────────────────── */}
       <div className="bg-card border rounded-xl p-4 space-y-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -226,11 +199,22 @@ export default function UserAccess() {
 
       {selectedUser && !loading && (
         <>
+          {/* ── Save All ────────────────────────────────────────────── */}
+          <div className="flex items-center gap-3">
+            <button onClick={saveAll} disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save All
+            </button>
+            {saveSuccess && <span className="text-sm text-emerald-600 flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>}
+          </div>
+
           {loadError && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-500">
               {loadError}
             </div>
           )}
+
           {/* ── Section 1: Roles & Permissions ──────────────────────── */}
           <div className="bg-card border rounded-xl p-5 space-y-3">
             <div className="flex items-center gap-2">
@@ -243,19 +227,11 @@ export default function UserAccess() {
                 {selectedUser.roles?.length > 0 ? selectedUser.roles.map(r => <Badge key={r} variant="outline">{r}</Badge>)
                   : <span className="text-xs text-muted-foreground">No roles assigned</span>}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{userRoleIds.length}/{allRoles.filter(r => r.isActive).length} selected</span>
-                {roleSuccess && <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3 h-3" /> Saved</span>}
-                <button onClick={saveUserRoles} disabled={roleSaving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
-                  {roleSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Save
-                </button>
-              </div>
+              <span className="text-xs text-muted-foreground">{userRoleIds.length}/{allRoles.filter(r => r.isActive).length} selected</span>
             </div>
-            {roleError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{roleError}</div>}
+            {saveErrors.roles && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{saveErrors.roles}</div>}
 
-            <div className="divide-y rounded-lg border max-h-64 overflow-y-auto">
+            <div className="divide-y rounded-lg border">
               {allRoles.filter(r => r.isActive).map(r => {
                 const checked = userRoleIds.includes(r.id);
                 return (
@@ -289,19 +265,11 @@ export default function UserAccess() {
                   placeholder="Filter modules…"
                   className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{directModuleIds.length}/{modules.length} selected</span>
-                {moduleSuccess && <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3 h-3" /> Saved</span>}
-                <button onClick={saveModuleAccesses} disabled={moduleSaving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
-                  {moduleSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Save
-                </button>
-              </div>
+              <span className="text-xs text-muted-foreground">{directModuleIds.length}/{modules.length} selected</span>
             </div>
-            {moduleError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{moduleError}</div>}
+            {saveErrors.modules && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{saveErrors.modules}</div>}
 
-            <div className="divide-y rounded-lg border max-h-64 overflow-y-auto">
+            <div className="divide-y rounded-lg border">
               {modules.filter(m => !moduleSearch || m.name.toLowerCase().includes(moduleSearch.toLowerCase())).map(m => {
                 const checked = directModuleIds.includes(m.id);
                 return (
@@ -334,17 +302,9 @@ export default function UserAccess() {
                   placeholder="Filter routes…"
                   className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{directRouteIds.length}/{routesByModule.flatMap(x => x.routes).length} selected</span>
-                {pageSuccess && <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3 h-3" /> Saved</span>}
-                <button onClick={savePageAccesses} disabled={pageSaving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
-                  {pageSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Save
-                </button>
-              </div>
+              <span className="text-xs text-muted-foreground">{directRouteIds.length}/{routesByModule.flatMap(x => x.routes).length} selected</span>
             </div>
-            {pageError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{pageError}</div>}
+            {saveErrors.routes && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{saveErrors.routes}</div>}
 
             <div className="divide-y rounded-lg border">
               {routesByModule.filter(({ module: m, routes }) =>
