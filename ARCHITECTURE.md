@@ -1,986 +1,824 @@
-# CentralAuth RBAC — Architecture Blueprint
+# CentralAuth — Architecture Document
 
-Multi-tenant Role-Based Access Control system built with .NET 8 Web API + React + MySQL.
+Multi-tenant role-based access control system with 3 orthogonal access layers.
+Built with **React 19 + Vite 8** (frontend), **.NET 8 Web API** (backend), **MySQL 8** (database).
 
 ---
 
 ## Table of Contents
 
-1. [Project Structure](#1-project-structure)
-2. [Database Schema](#2-database-schema)
-3. [The Login Cycle](#3-the-login-cycle)
-4. [The UI Configuration Flow](#4-the-ui-configuration-flow)
-5. [The Backend Middleware Guard](#5-the-backend-middleware-guard)
-6. [The Client-Side Route Guard](#6-the-client-side-route-guard)
-7. [Complete Data Flow Diagram](#7-complete-data-flow-diagram)
-8. [Route Protection Matrix](#8-route-protection-matrix)
-9. [Verified Test Results](#9-verified-test-results)
+1. [Project Overview](#1-project-overview)
+2. [Project Structure](#2-project-structure)
+3. [Database Schema & Entity Relationships](#3-database-schema--entity-relationships)
+4. [Three-Layer Access Control](#4-three-layer-access-control)
+5. [The Login Cycle](#5-the-login-cycle)
+6. [Admin Configuration Flows](#6-admin-configuration-flows)
+7. [Backend Middleware Guard](#7-backend-middleware-guard)
+8. [Client-Side Guards](#8-client-side-guards)
+9. [Complete Data Flow](#9-complete-data-flow)
+10. [Key Design Decisions](#10-key-design-decisions)
+11. [Route Protection Matrix](#11-route-protection-matrix)
 
 ---
 
-## 1. Project Structure
+## 1. Project Overview
 
 ```
 super-octo-engine-2/
+├── Central_auth_api/          # .NET 8 Web API backend
+│   ├── Controllers/           # 15 API controllers
+│   ├── Models/                # 26 EF Core entities
+│   ├── DTOs/                  # 15+ request/response DTOs
+│   ├── Filters/               # DynamicPermissionMiddleware + Filter
+│   ├── Data/                  # DbContext + Migrations (9)
+│   ├── Services/              # EmployeeIdGenerator
+│   └── Program.cs             # DI, middleware pipeline, CORS, Swagger
 │
-├── Central_auth_api/            ← .NET 8 Web API backend
-│   ├── Controllers/             ← API endpoints
-│   │   ├── AuthController.cs         → /api/auth/login
-│   │   ├── RolesController.cs        → /api/roles
-│   │   ├── UsersController.cs        → /api/users
-│   │   ├── PermissionsController.cs  → /api/permissions
-│   │   ├── ModulesController.cs      → /api/modules (CRUD + routes + permissions + accessible)
-│   │   ├── TestEndpointsController.cs  → /api/receipts, /api/admin,
-│   │   │                                  /api/fabrics, /api/orders,
-│   │   │                                  /api/inventory, /api/reports
-│   │   ├── MockAppController.cs       → HTML mock pages for RBAC testing
-│   │   └── ...
-│   ├── Models/                  ← EF Core entities
-│   │   ├── AppUser.cs, Role.cs, Permission.cs, RolePermission.cs
-│   │   ├── UserRole.cs, Tenant.cs, TenantUser.cs
-│   │   ├── ApiServiceRoute.cs, ModulePermission.cs
-│   │   ├── Module.cs, Page.cs, RoleModule.cs
-│   │   └── ...
-│   ├── Filters/
-│   │   ├── DynamicPermissionFilter.cs    ← IAsyncAuthorizationFilter
-│   │   └── DynamicPermissionMiddleware.cs ← Middleware
-│   ├── Data/CentralAuthDbContext.cs
-│   ├── Migrations/
-│   └── Program.cs
+├── Central_auth/              # React 19 + Vite 8 frontend
+│   ├── src/pages/             # 13 page components
+│   ├── src/components/        # 9 reusable components
+│   ├── src/lib/               # api.ts, auth.ts, utils.ts
+│   └── vite.config.ts         # Proxy /api/* → backend :5089
 │
-├── Central_auth/                ← React + TypeScript frontend
-│   ├── src/
-│   │   ├── App.tsx                  ← Router with ProtectedRoute wrapper
-│   │   ├── pages/
-│   │   │   ├── Login.tsx            ← Login form, saves session to localStorage
-│   │   │   ├── Roles.tsx            ← Role CRUD with permission checkboxes
-│   │   │   ├── Users.tsx            ← User CRUD with role assignment
-│   │   │   ├── Permissions.tsx      ← Permission CRUD with create/delete
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── Modules.tsx         ← Module CRUD, route management (add/edit/delete), permission assignment, search, tree
-│   │   │   └── ...
-│   │   ├── components/
-│   │   │   ├── ProtectedRoute.tsx   ← Auth guard (checks localStorage)
-│   │   │   ├── Sidebar.tsx         ← Admin nav (no Services link) + dynamic "Applications" section from accessible_modules
-│   │   │   ├── Layout.tsx           ← Sidebar + Header + main
-│   │   │   ├── UserForm.tsx         ← User create/edit form with role multi-select
-│   │   │   └── ...
-│   │   └── lib/
-│   │       ├── api.ts               ← fetch wrapper, all endpoint functions, types (no services.*, added modules.routes.*)
-│   │       ├── auth.ts              ← getSession, saveSession, clearSession, getToken
-│   │       └── utils.ts             ← cn() for Tailwind class merging
-│   └── vite.config.ts          ← Proxy /api/*, /auth/*, /mock-apps/* → http://127.0.0.1:5089
-│
-├── Schema/                      ← Database reference
+├── Schema/                    # DB reference scripts
 ├── Scripts/
-└── ARCHITECTURE.md              ← This file
+└── ARCHITECTURE.md            # This file
+```
+
+| Component | Technology | Port |
+|-----------|-----------|------|
+| Backend | ASP.NET Core 8, EF Core 8 (Pomelo MySQL) | `:5089` |
+| Frontend | React 19, Vite 8, Tailwind 3.4, Radix UI | `:5173` |
+| Database | MySQL 8 (`centerl_auth`, tables prefixed `auth_`) | `:3306` |
+| Auth | JWT Bearer, HMAC-SHA256, BCrypt | — |
+
+---
+
+## 2. Project Structure
+
+### Backend — `Central_auth_api/`
+
+```
+Central_auth_api/
+├── Program.cs                          # DI, middleware pipeline, Swagger, CORS
+├── Models/
+│   ├── BaseEntity.cs                   # Abstract: Id, IsActive, CreatedAt, UpdatedAt, CreatedBy, UpdatedBy
+│   ├── AppUser.cs                      # Core user (email, password hash, dept, designation, 2FA, lockout)
+│   ├── Role.cs                         # Tenant-scoped role, IsSystem flag
+│   ├── Permission.cs                   # Granular permission code (unique), group name
+│   ├── Tenant.cs, Department.cs, Designation.cs  # Multi-tenancy hierarchy
+│   ├── TenantUser.cs                   # User–Tenant membership with EmployeeId
+│   ├── UserRole.cs                     # User ↔ Role junction
+│   ├── RolePermission.cs               # Role ↔ Permission junction
+│   ├── UserPermission.cs               # Direct User ↔ Permission junction (layer 2)
+│   ├── ModulePermission.cs             # Module ↔ Permission junction (sidebar visibility)
+│   ├── Module.cs, Page.cs              # Navigation hierarchy (self-referencing via ParentId)
+│   ├── UserModuleAccess.cs             # Direct User ↔ Module grant (layer 2)
+│   ├── UserPageAccess.cs               # User ↔ Page grant
+│   ├── ApiServiceRoute.cs              # Route definition with required permission code
+│   ├── UserApiRoute.cs                 # Direct User ↔ Route bypass (layer 3)
+│   ├── UserClaim.cs, RoleClaim.cs      # Custom claims storage
+│   ├── UserLoginSession.cs             # Active session tracking
+│   ├── TokenBlacklist.cs               # JWT JTI-based revocation
+│   ├── PasswordResetToken.cs, OtpVerification.cs  # Auth infrastructure
+│   ├── AuditHistory.cs                 # Auto-logged entity changes
+│   └── UserDatatablePreference.cs       # UI state persistence
+│
+├── DTOs/
+│   ├── AuthDtos.cs                      # LoginRequest, LoginResponse, RefreshRequest
+│   ├── UserDtos.cs                      # UserListDto, Create/Update, Role/Module/Route update DTOs
+│   ├── RoleDtos.cs                      # RoleListDto, RoleDetailDto, PermissionDto, Module DTOs
+│   ├── RouteDtos.cs                     # RouteListItemDto, Create/Update DTOs
+│   ├── TenantDtos.cs                    # Tenant CRUD DTOs
+│   ├── DashboardDtos.cs                 # Stats, RecentUser, AuditActivity
+│   └── PagedResult.cs                   # Generic paged result wrapper
+│
+├── Controllers/
+│   ├── AuthController.cs                # POST /api/auth/login, logout, set-password, introspect, check-permission
+│   ├── UsersController.cs               # GET/POST/PUT /api/users, roles/modules/routes endpoints, lock/unlock
+│   ├── RolesController.cs               # CRUD /api/roles, soft-delete
+│   ├── PermissionsController.cs         # CRUD /api/permissions, GET /groups
+│   ├── ModulesController.cs             # CRUD /api/modules, accessible, pages, permissions, routes (nested)
+│   ├── RoutesController.cs              # CRUD /api/routes (global)
+│   ├── TenantsController.cs             # CRUD /api/tenants
+│   ├── DepartmentsController.cs         # CRUD /api/departments
+│   ├── DesignationsController.cs        # CRUD /api/designations
+│   ├── DashboardController.cs           # GET /api/dashboard/stats, recent-users, recent-audit
+│   ├── AuditController.cs               # GET /api/audit (paginated, filterable)
+│   ├── SessionsController.cs            # GET /api/sessions, revoke, revoke-all
+│   ├── MockAppController.cs             # HTML mock pages for RBAC testing
+│   ├── TestEndpointsController.cs       # Mock API gated by DynamicPermissionFilter
+│   └── TestLabController.cs             # Interactive browser test lab
+│
+├── Filters/
+│   ├── DynamicPermissionMiddleware.cs   # Global middleware: route matching + direct route bypass
+│   └── DynamicPermissionFilter.cs      # IAsyncAuthorizationFilter (redundant safety layer)
+│
+├── Data/
+│   └── CentralAuthDbContext.cs          # 25 DbSets, audit override in SaveChangesAsync
+│
+├── Migrations/                          # 9 migrations (Initial → AddUserApiRouteTable)
+└── Services/
+    └── EmployeeIdGenerator.cs           # Per-tenant serial ID (SELECT...FOR UPDATE)
+```
+
+### Frontend — `Central_auth/`
+
+```
+Central_auth/src/
+├── App.tsx                              # BrowserRouter + ProtectedRoute wrapper
+│
+├── pages/                              # 13 page components
+│   ├── Login.tsx                        # Email/password → JWT → localStorage
+│   ├── Dashboard.tsx                    # Stats cards, recent users, audit feed
+│   ├── Users.tsx                        # User CRUD table (no role/permission assignment)
+│   ├── Roles.tsx                        # Role CRUD + module→route permission tree
+│   ├── UserAccess.tsx                   # 3-section hub: roles, module access, route access
+│   ├── Modules.tsx                      # Module CRUD + route management + permission binding
+│   ├── ModulePage.tsx                   # Single module detail + route testing
+│   ├── Tenants.tsx                      # Tenant CRUD
+│   ├── Departments.tsx                  # Department CRUD (tenant-filtered)
+│   ├── Designations.tsx                 # Designation CRUD (tenant-filtered)
+│   ├── Sessions.tsx                     # Active session monitoring + revoke
+│   ├── AuditLogs.tsx                    # Paginated audit trail
+│   └── AccessTester.tsx                 # Test all routes against current user's JWT
+│
+├── components/
+│   ├── ProtectedRoute.tsx               # Auth guard — checks localStorage session + expiry
+│   ├── Layout.tsx                       # Sidebar + Header + Outlet
+│   ├── Sidebar.tsx                      # Nav links + dynamic Applications from GET /api/modules/accessible
+│   ├── Header.tsx                       # Path-based title + "My Permissions" JWT decoder
+│   ├── UserForm.tsx                     # Create/edit user form (no role multi-select)
+│   ├── userFormModel.ts                 # Form state helpers
+│   ├── Badge.tsx                        # Status/label chip
+│   ├── StatCard.tsx                     # Dashboard metric card
+│   └── Skeleton.tsx                     # Loading placeholders
+│
+└── lib/
+    ├── api.ts                           # Fetch wrapper (JWT attach, 401 redirect), all endpoint methods
+    ├── auth.ts                          # getSession, saveSession, clearSession, getToken, getPermissions
+    └── utils.ts                         # cn() — clsx + tailwind-merge
 ```
 
 ---
 
-## 2. Database Schema
+## 3. Database Schema & Entity Relationships
 
-### Core RBAC Tables
+### 3.1 Table Inventory (25 tables)
+
+| # | Table | Entity | Domain | Extends BaseEntity |
+|---|-------|--------|--------|-------------------|
+| 1 | `auth_tenants` | Tenant | Tenancy | Yes |
+| 2 | `auth_departments` | Department | Tenancy | Yes |
+| 3 | `auth_designations` | Designation | Tenancy | Yes |
+| 4 | `auth_tenant_users` | TenantUser | Tenancy (junction) | Yes |
+| 5 | `auth_roles` | Role | Tenancy | Yes |
+| 6 | `auth_role_claims` | RoleClaim | Tenancy | Yes |
+| 7 | `auth_appusers` | AppUser | User | Yes |
+| 8 | `auth_userroles` | UserRole | User (junction) | Yes |
+| 9 | `UserClaims` | UserClaim | User | Yes |
+| 10 | `auth_user_login_sessions` | UserLoginSession | User | Yes |
+| 11 | `auth_token_blacklist` | TokenBlacklist | User | No |
+| 12 | `auth_password_reset_tokens` | PasswordResetToken | User | No |
+| 13 | `auth_otp_verifications` | OtpVerification | User | No |
+| 14 | `auth_user_datatable_preferences` | UserDatatablePreference | User | No |
+| 15 | `auth_permissions` | Permission | Auth | Yes |
+| 16 | `auth_rolepermissions` | RolePermission | Auth (junction) | Yes |
+| 17 | `auth_userpermissions` | UserPermission | Auth (junction) | Yes |
+| 18 | `auth_modules` | Module | Navigation | Yes |
+| 19 | `auth_pages` | Page | Navigation | Yes |
+| 20 | `auth_module_permissions` | ModulePermission | Navigation (junction) | Yes |
+| 21 | `auth_usermoduleaccesses` | UserModuleAccess | Navigation (junction) | Yes |
+| 22 | `auth_userpageaccesses` | UserPageAccess | Navigation (junction) | Yes |
+| 23 | `auth_api_service_routes` | ApiServiceRoute | API Routes | Yes |
+| 24 | `auth_user_api_routes` | UserApiRoute | API Routes (junction) | Yes |
+| 25 | `auth_audithistories` | AuditHistory | Audit | No |
+
+### 3.2 Entity Relationship Diagram
 
 ```
-auth_users
-  ├── id (PK)
-  ├── Email, NormalizedEmail
-  ├── PasswordHash (BCrypt)
-  ├── FirstName, LastName, UserName
-  ├── IsActive, IsLocked
-  └── ...
+auth_tenants
+├──< auth_departments        (TenantId FK, Restrict)
+├──< auth_designations       (TenantId FK, Restrict)
+├──< auth_roles              (TenantId FK, Restrict)
+├──< auth_tenant_users       (TenantId FK, Restrict)
+└──< auth_audithistories     (TenantId FK, SetNull)
+
+auth_departments ──< auth_appusers (DepartmentId FK, Restrict)
+auth_designations ──< auth_appusers (DesignationId FK, Restrict)
+
+auth_appusers
+├──< auth_tenant_users       (AppUserId FK, Cascade)
+├──< auth_userroles          (AppUserId FK, Cascade)
+├──< auth_userpermissions    (AppUserId FK, Cascade)
+├──< UserClaims              (AppUserId FK, Cascade)
+├──< auth_user_login_sessions(AppUserId FK, Cascade)
+├──< auth_token_blacklist    (AppUserId FK, SetNull)
+├──< auth_password_reset_tokens  (AppUserId FK, Cascade)
+├──< auth_otp_verifications  (AppUserId FK, Cascade)
+├──< auth_user_datatable_preferences (AppUserId FK, Cascade)
+├──< auth_usermoduleaccesses (AppUserId FK, Cascade)
+├──< auth_userpageaccesses   (AppUserId FK, Cascade)
+├──< auth_user_api_routes    (AppUserId FK, Cascade)
+└──< auth_audithistories     (AppUserId FK, SetNull)
 
 auth_roles
-  ├── id (PK)
-  ├── Name (unique per tenant)
-  ├── Description
-  ├── TenantId (nullable — global role if null)
-  ├── IsSystem (protected from deletion)
-  └── ...
+├──< auth_userroles          (RoleId FK, Cascade)
+├──< auth_rolepermissions    (RoleId FK, Cascade)
+└──< auth_role_claims        (RoleId FK, Cascade)
 
 auth_permissions
-  ├── id (PK)
-  ├── Code (unique, e.g. "Inventory_FullAccess")
-  ├── Name (human-readable)
-  ├── GroupName (logical grouping, e.g. "Modules")
-  └── ...
+├──< auth_rolepermissions    (PermissionId FK, Cascade)
+├──< auth_userpermissions    (PermissionId FK, Cascade)
+└──< auth_module_permissions (PermissionId FK, Cascade)
 
-auth_rolepermissions          ← Junction: Role → Permission (many-to-many)
-  ├── RoleId (FK → auth_roles)
-  ├── PermissionId (FK → auth_permissions)
-  └── UNIQUE(RoleId, PermissionId)
+auth_modules (self-referencing via ParentId)
+├──< auth_modules            (ParentId FK, Restrict)  [parent-child]
+├──< auth_pages              (ModuleId FK, Cascade)
+├──< auth_module_permissions (ModuleId FK, Cascade)
+├──< auth_usermoduleaccesses (ModuleId FK, Cascade)
+└──< auth_api_service_routes (ModuleId FK, Cascade)
 
-auth_userroles                ← Junction: User → Role (many-to-many)
-  ├── AppUserId (FK → auth_users)
-  ├── RoleId (FK → auth_roles)
-  └── UNIQUE(AppUserId, RoleId)
-
-auth_tenants
-  ├── id (PK)
-  ├── Name, Code, ...
-  └── ...
-
-auth_tenantusers              ← Junction: User → Tenant
-  ├── AppUserId (FK → auth_users)
-  ├── TenantId (FK → auth_tenants)
-  ├── EmployeeId (per-tenant serial)
-  └── ...
+auth_pages ──< auth_userpageaccesses (PageId FK, Cascade)
+auth_api_service_routes ──< auth_user_api_routes (ApiServiceRouteId FK, Cascade)
 ```
 
-### Route Protection Tables
+### 3.3 Key Tables Detail
+
+**`auth_api_service_routes`** — defines what permission is required for each backend endpoint:
+| Column | Purpose |
+|--------|---------|
+| `ModuleId` (FK) | Parent module that owns this route |
+| `HttpMethod` | GET, POST, PUT, PATCH, DELETE, or `*` for any |
+| `RoutePattern` | URL pattern (supports `{param}` placeholders) |
+| `RequiredPermissionCode` | String key matched against JWT `permission` claims |
+
+**`auth_user_api_routes`** — per-user bypass of middleware permission checks:
+| Column | Purpose |
+|--------|---------|
+| `AppUserId` (FK) | Target user |
+| `ApiServiceRouteId` (FK) | Route to bypass |
+| Effect: user can access this route **without** the required permission claim |
+
+### 3.4 Delete Behaviors
+
+- All junction tables: **CASCADE** delete
+- Optional FKs to `Tenant`/`AppUser`: **RESTRICT** or **SET NULL**
+- Module self-reference (`ParentId`): **RESTRICT** (prevents orphaned children)
+- Audit references: **SET NULL** (preserves audit trail even if user/tenant deleted)
+
+---
+
+## 4. Three-Layer Access Control
+
+The system uses 3 orthogonal layers. Access is the **union** of all layers (additive only — no deny/override in v1).
 
 ```
-auth_api_service_routes       ← Maps URL patterns to required permissions
-  ├── id (PK)
-  ├── ModuleId (FK → auth_modules)
-  ├── HttpMethod (GET, POST, *, etc.)
-  ├── RoutePattern (e.g. "/api/inventory")
-  ├── RequiredPermissionCode (e.g. "Inventory_FullAccess")
-  ├── IsActive (soft delete flag)
-  └── ...
+Layer 1: Role-Based Access ───────────────────────────────────────
+  User → UserRole → Role → RolePermission → Permission.Code
+  │
+  │  Assigned via: User Access page (role checkboxes)
+  │  Enforced via: JWT permission claims (set at login, checked by middleware)
+  │  Modules via: ModulePermission junction (sidebar visibility)
+  │
+Layer 2: Direct Module Access ───────────────────────────────────
+  User → UserModuleAccess → Module
+  │
+  │  Assigned via: User Access page (module checkboxes)
+  │  Effect: module appears in sidebar & accessible endpoints
+  │  Bypasses: role/permission requirements for module visibility
+  │
+Layer 3: Direct Route Grant ──────────────────────────────────────
+  User → UserApiRoute → ApiServiceRoute
+  │
+  │  Assigned via: User Access page (route checkboxes)
+  │  Enforced via: DynamicPermissionMiddleware (direct DB check before claims)
+  │  Effect: middleware skips permission claim check for this route
+  │
+  ▼
+Result: user gets MAX(role permissions, direct module access, direct route access)
 ```
 
-### Module Permission Tables
+### Access Resolution Order (GET /api/modules/accessible)
 
 ```
-auth_module_permissions       ← Maps permissions to modules for sidebar visibility
-  ├── id (PK)
-  ├── ModuleId (FK → auth_modules)
-  ├── PermissionId (FK → auth_permissions)
-  ├── UNIQUE (ModuleId, PermissionId)
-  └── ...
+accessibleModuleIds =
+    moduleIds from role permissions                         (Layer 1)
+    ∪ moduleIds from direct UserModuleAccess grants          (Layer 2)
+    ∪ moduleIds from direct UserApiRoute grants              (Layer 3)
+
+result = all modules where:
+    module has 0 ModulePermission entries → visible to ALL
+    module has ≥1 ModulePermission entry → module.Id in accessibleModuleIds
 ```
 
-### Routes live on Modules (Services removed)
-
-Routes are now attached directly to modules via `ModuleId` FK, removing the Services abstraction entirely. Each module can have zero or more API routes (`auth_api_service_routes`), and each route requires a permission code for middleware enforcement.
-
-| Aspect | Modules (`auth_modules`) |
-|--------|--------------------------|
-| Purpose | Organizational labels + sidebar nav items + route containers |
-| Used by | `DynamicPermissionMiddleware` at runtime + `Sidebar.tsx` "Applications" section + `Permissions.tsx` group dropdown |
-| Connection to permissions | Routes have `RequiredPermissionCode` (string match for middleware); `auth_module_permissions` junction (direct FK for sidebar visibility) |
-
-Modules with 0 permissions are visible to everyone.
-
-### Entity Relationship Chain
+### Access Resolution Order (DynamicPermissionMiddleware)
 
 ```
-auth_users
-  └── auth_userroles (AppUserId → RoleId)
-        └── auth_roles
-              ├── auth_rolepermissions (RoleId → PermissionId)
-              │     └── auth_permissions (Code = "Inventory_FullAccess")
-              │           ├── auth_module_permissions (PermissionId → ModuleId)
-              │           │     └── auth_modules
-              │           └── auth_api_service_routes (RequiredPermissionCode string match)
-              │                 └── auth_modules (ModuleId FK)
-              └── auth_rolemodules (RoleId → ModuleId)
-
-auth_api_service_routes (RoutePattern → RequiredPermissionCode, ModuleId FK → auth_modules)
-  └── Routes are children of modules; permission matched by string Code at runtime
-
-auth_module_permissions (ModuleId → PermissionId)
-  └── Direct junction between modules and permissions for sidebar visibility
+1. If route matches an ApiServiceRoute:
+   a. Check UserApiRoute table for direct grant → ALLOW (skip to step 2)
+   b. Check JWT claims for RequiredPermissionCode → ALLOW
+   c. Neither found → 403 Forbidden
+2. If route doesn't match any ApiServiceRoute → PASS THROUGH (no guard)
 ```
 
 ---
 
-## 3. THE LOGIN CYCLE
+## 5. The Login Cycle
 
 ```
- Browser (React)                     .NET 8 API                   MySQL
- ─────────────                     ──────────                   ─────
+Browser (React)                .NET 8 API                    MySQL
+─────────────                  ──────────                    ─────
 
- Login.tsx
-   │
-   ├─ email + password
-   │
-   ▼
- api.auth.login()
-   │
-   │  fetch("POST /api/auth/login", {email, password})
-   │
-   ▼                          AuthController.Login(req)
- Vite proxy ─────────────────►  │
-   (port 5173)                  │
-                                ├─ ToUpperInvariant(email)
-                                │
-                                ├─ SELECT * FROM auth_users
-                                │    WHERE NormalizedEmail=@e
-                                │    AND IsActive=1         ──► auth_users
-                                │    │
-                                ├─ BCrypt.Verify(password, User.PasswordHash)
-                                │    │
-                                │    ├─ FAIL → 401 Unauthorized
-                                │    └─ PASS → continue
-                                │
-                                ├─ Load UserRoles with eager includes:
-                                │    User → UserRoles → Role
-                                │      → RolePermissions → Permission.Code  ──► auth_userroles
-                                │                                                       auth_rolepermissions
-                                │                                                       auth_permissions
-                                │    │
-                                │    ├─ permissions = user.UserRoles
-                                │    │     .SelectMany(r => r.RolePermissions)
-                                │    │     .Where(rp => rp.IsActive)
-                                │    │     .Select(rp => rp.Permission.Code)
-                                │    │     .Distinct()
-                                │    │     .ToList()
-                                │    │
-                                │    └─ roles = user.UserRoles
-                                │          .Select(ur => ur.Role.Name)
-                                │          .ToList()
-                                │
-                                ├─ BuildToken(userId, email, roles, permissions):
-                                │    Claims:
-                                │      sub        → userId
-                                │      email      → user.Email
-                                │      jti        → Guid.NewGuid()
-                                │      role       → each role name
-                                │      permission → each permission code  ←── KEY LINE
-                                │
-                                ├─ HMAC-SHA256 sign with Jwt:Key
-                                │
-                                │  ╔═══════════════════════════════════╗
-                                │  ║  JWT Payload (decoded example):  ║
-                                │  ║  {                                ║
-                                │  ║    "sub": "19",                  ║
-                                │  ║    "email": "inv@test.com",      ║
-                                │  ║    "role": ["Inventory Manager"],║
-                                │  ║    "permission": [               ║
-                                │  ║      "Inventory_FullAccess"      ║
-                                │  ║    ]                             ║
-                                │  ║  }                                ║
-                                │  ╚═══════════════════════════════════╝
-                                │
-                                ├─ Return { accessToken, expiresAt, user }
-                                │
- Browser ◄──────────────────────┘
-   │
-   │  Login.tsx:22-26 (the mapper):
-   │    saveSession({
-   │      token: res.accessToken,    ←── accessToken → token rename
-   │      expiresAt: res.expiresAt,
-   │      user: res.user,
-   │    })
-   │
-   ▼
- auth.ts: saveSession()
-   │
-   ├─ localStorage.setItem("central_auth_session", JSON.stringify({
-   │     token: "eyJhbGciOi...",
-   │     expiresAt: "2026-06-09T16:18:24",
-   │     user: { id: 19, fullName: "Inventory Tester", ... }
-   │   }))
-   │
-   ▼
- navigate("/dashboard")
+Login.tsx
+  ├─ email + password
+  ▼
+api.auth.login()
+  │  POST /api/auth/login
+  ▼                          AuthController.Login(req)
+Vite proxy ────────────────►  │
+  (:5173 → :5089)             │
+                              ├─ NormalizedEmail = ToUpperInvariant(email)
+                              │
+                              ├─ SELECT * FROM auth_appusers
+                              │    WHERE NormalizedEmail=@e
+                              │    AND IsActive=1            ──► auth_appusers
+                              │
+                              ├─ BCrypt.Verify(password, User.PasswordHash)
+                              │    ├─ FAIL → 401
+                              │    └─ PASS → continue
+                              │
+                              ├─ Load roles & permissions:
+                              │    User → UserRoles → Role
+                              │      → RolePermissions → Permission.Code  ──► auth_userroles
+                              │                                                    auth_rolepermissions
+                              │                                                    auth_permissions
+                              │
+                              ├─ permissions = user.UserRoles
+                              │     .SelectMany(r => r.RolePermissions)
+                              │     .Where(rp => rp.IsActive)
+                              │     .Select(rp => rp.Permission.Code)
+                              │     .Distinct()
+                              │
+                              ├─ BuildToken(userId, email, roles, permissions):
+                              │    Claims:
+                              │      sub        → userId
+                              │      email      → user.Email
+                              │      jti        → Guid.NewGuid()
+                              │      role       → each role name
+                              │      permission → each permission code
+                              │
+                              ├─ HMAC-SHA256 sign with Jwt:Key
+                              │
+                              │  ╔═══════════════════════════════════╗
+                              │  ║  JWT Payload (decoded):          ║
+                              │  ║  {                               ║
+                              │  ║    "sub": "19",                  ║
+                              │  ║    "email": "inv@test.com",     ║
+                              │  ║    "role": ["Inventory Manager"],║
+                              │  ║    "permission": [               ║
+                              │  ║      "Inventory_FullAccess"     ║
+                              │  ║    ]                            ║
+                              │  ║  }                               ║
+                              │  ╚═══════════════════════════════════╝
+                              │
+                              ├─ Return { accessToken, expiresAt, user }
+                              │
+Browser ◄─────────────────────┘
+  │
+  │  Login.tsx:22-26:
+  │    saveSession({
+  │      token: res.accessToken,
+  │      expiresAt: res.expiresAt,
+  │      user: res.user,
+  │    })
+  │
+  ▼
+auth.ts: saveSession()
+  ├─ localStorage.setItem("central_auth_session", JSON.stringify({
+  │     token: "eyJhbGciOi...",
+  │     expiresAt: "2026-06-12T16:00:00",
+  │     user: { id: 19, fullName: "Inventory Tester", ... }
+  │   }))
+  ▼
+navigate("/dashboard")
 ```
 
-### Key files:
-- `Central_auth/src/pages/Login.tsx:22-26` — the `accessToken` → `token` mapper
-- `Central_auth/src/lib/auth.ts:27-29` — `saveSession()` writes to localStorage
-- `Central_auth_api/Controllers/AuthController.cs` — server-side login logic
-- `Central_auth_api/Controllers/AuthController.cs:232-257` — `BuildToken()` with permission claims
+### JWT Claim Extraction (Frontend)
 
----
-
-## 4. THE UI CONFIGURATION FLOW
-
-### 4a. Admin creates a role with specific permissions
-
-```
- Admin's Browser                  React Roles.tsx               .NET 8 API              MySQL
- ───────────────                  ──────────────               ──────────              ─────
-
- Roles.tsx (http://localhost:5173/roles)
-   │
-   ├── Click "New Role"
-   │
-   ▼
- Create Modal opens
-   │
-   │  Name: "Inventory Manager"
-   │  Description: "Handles inventory modules exclusively"
-   │
-   │  Permissions rendered from api.permissions.list()
-   │  (fetched on mount via GET /api/permissions)
-   │
-   │   ┌─────────────────────────────────────────┐
-   │   │ Modules                          ▲      │
-   │   │  ☐ Fabric Receiving Full Access          │
-   │   │  ☑ Inventory Full Access                 │  ←── only this checked
-   │   │  ☐ Order Management Full Access          │
-   │   │  ☐ Reports Full Access           ▼      │
-   │   └─────────────────────────────────────────┘
-   │
-   │  selectedPerms = [11]  (Inventory_FullAccess permission ID)
-   │
-   ├── Click "Save"
-   │
-   ▼
- Roles.tsx:78
-   await api.roles.create({
-     name: "Inventory Manager",
-     description: "...",
-     permissionIds: [11],      ←── the checked IDs
-   })
-   │
-   │  fetch("POST /api/roles", { name, permissionIds: [11] })
-   │
-   ▼                          RolesController.Create(dto)         auth_roles
- Vite proxy ─────────────────►  │
-                                │  1. INSERT INTO auth_roles
-                                │     (Name, Description, ...)         ──► INSERT
-                                │     VALUES ("Inventory Manager", ...)
-                                │
-                                │  2. For each permissionId:
-                                │     INSERT INTO auth_rolepermissions
-                                │       (RoleId, PermissionId)          ──► INSERT
-                                │       VALUES (@newRoleId, 11)
-                                │
-                                │  3. 201 Created { id: 5 }
-                                │
-```
-
-### 4b. Admin creates a user and assigns the role
-
-```
- Admin's Browser                  React Users.tsx               .NET 8 API              MySQL
- ───────────────                  ──────────────               ──────────              ─────
-
- Users.tsx
-   │
-   ├── Click "Create New User"
-   │
-   ▼
- UserForm.tsx opens
-   │
-   │  First Name: "Inventory"
-   │  Last Name:  "Tester"
-   │  Email:      "inv@test.com"
-   │  Username:   "invtester"
-   │  Password:   "Test@123"
-   │  Tenant:     "Paragon" (tenant ID 1)
-   │  Department: "HR" (department ID 5)
-   │  Designation: "System Administrator" (designation ID 6)
-   │  Roles:      [Inventory Manager]   ←── multi-select, role ID 5
-   │
-   ├── Click "Create User"
-   │
-   ▼
- Users.tsx:71
-   await api.users.create({
-     firstName, lastName, email, userName, password,
-     tenantIds: [1], departmentId: 5, designationId: 6,
-     roleIds: [5]                    ←── binds to Inventory Manager role
-   })
-   │
-   │  fetch("POST /api/users", { ...roleIds: [5] })
-   │
-   ▼                          UsersController.Create(dto)          auth_users
- Vite proxy ─────────────────►  │
-                                │  1. BCrypt.HashPassword("Test@123")
-                                │
-                                │  2. INSERT INTO auth_users
-                                │     (FirstName, LastName, Email, ...)   ──► INSERT
-                                │
-                                │  3. Generate EmployeeId for tenant
-                                │
-                                │  4. INSERT INTO auth_tenantusers       ──► INSERT
-                                │     (AppUserId, TenantId, EmployeeId)
-                                │
-                                │  5. INSERT INTO auth_userroles         ──► INSERT
-                                │     (AppUserId, RoleId) VALUES (19, 5)
-                                │
-                                │  6. 201 Created { id: 19 }
-                                │
-```
-
-### 4c. Admin registers API routes via Modules UI (Services removed)
-
-Routes are now created directly on modules. The Modules page provides expandable route sections per module.
-
-```
- Admin's Browser                  React Modules.tsx             .NET 8 API                   MySQL
- ───────────────                  ─────────────────            ──────────                   ─────
-
- Modules.tsx (http://localhost:5173/modules)
-   │
-   ├── Page loads → api.modules.list() + api.permissions.list()
-   │
-   ▼
- Module rows rendered, each with:
-   ┌─ Cutting ─────────────────────────────────────────────┐
-   │  Code: CUT  |  Route: /Cutting  |  Status: Active     │
-   │                                                        │
-   │  [Manage Permissions 🔒]  [▶ Routes (0)]               │  ← click chevron to expand
-   └────────────────────────────────────────────────────────┘
-   │
-   ├── Click ▶ Routes (chevron)
-   │    │
-   │    ▼
-   │  Routes table expanded (or "No routes registered")
-   │    │
-   │    ├── Click "+ Add Route"
-   │    │    │
-   │    │    ▼
-   │    │  Route modal opens:
-   │    │   ┌─ Add API Route ──────────────────────────────────────┐
-   │    │   │  HTTP Method:      [GET ▾]                           │
-   │    │   │  Route Pattern:    [/api/inventory                   │
-   │    │   │  Permission Code:  [Inventory_FullAccess ▾]          │  ← datalist from api.permissions.list()
-   │    │   │  [Cancel]  [Add Route]                               │
-   │    │   └──────────────────────────────────────────────────────┘
-   │    │    │
-   │    │    ├── Fill form, click "Add Route"
-   │    │    │
-   │    │    ▼
-   │    │  api.modules.routes.create(moduleId, payload) ──►  POST /api/modules/{id}/routes  ──► INSERT
-   │    │    │  { httpMethod: "GET",                         ModulesController.AddRoute()        auth_api_service_routes
-   │    │    │    routePattern: "/api/inventory",
-   │    │    │    requiredPermissionCode: "Inventory_FullAccess" }
-   │    │    │
-   │    │    ├── 201 Created { id: N }
-   │    │    ├── Cache invalidated (InvalidateCache() removes DynamicPermissionRoutes key)
-   │    │    └── UI refreshes route list for that module
-   │    │
-   │    └── Deleting a route:
-   │         Click trash icon → api.modules.routes.remove(moduleId, id)
-   │           ──►  DELETE /api/modules/{id}/routes/{routeId}  ──► soft delete (IsActive=false)
-   │           → Cache invalidated
-   │           → UI refreshes
-   │
-   ▼
-  Result: auth_api_service_routes now has row:
-   ┌────┬──────────┬────────┬─────────────────┬────────────────────────────┐
-   │ Id │ ModuleId │ Method │ RoutePattern     │ RequiredPermissionCode     │
-   ├────┼──────────┼────────┼─────────────────┼────────────────────────────┤
-   │ 15 │ 1        │ GET    │ /api/inventory   │ Inventory_FullAccess       │
-   └────┴──────────┴────────┴─────────────────┴────────────────────────────┘
-```
-
-> **Note:** `CreateRoute` and `UpdateRoute` both validate `HttpMethod`, `RoutePattern`, and `RequiredPermissionCode` are non-null before use (returns 400 BadRequest if missing). The DB has a unique index on `(HttpMethod, RoutePattern)` — attempting to register a duplicate HTTP+path combination returns 500.
-
-### Key files for route management UI:
-- `Central_auth/src/pages/Modules.tsx` — expandable route sections + route modal + Manage Permissions
-- `Central_auth/src/lib/api.ts` — `api.modules.routes.*` CRUD functions + `ModuleRouteItem` types
-- `Central_auth_api/Controllers/ModulesController.cs` — endpoints: `GET|POST|PUT|DELETE /{id}/routes`
-- `Central_auth_api/Models/ApiServiceRoute.cs` — entity model (ModuleId FK, no more ServiceId)
-- `Central_auth/vite.config.ts` — proxies `/api/*` to backend
-
-### 4d. Admin browses and manages modules with search, tree view, and delete
-
-`ModuleListItemDto` now includes `ParentId` (nullable long), enabling the frontend to build a hierarchical tree from the flat list response.
-
-```
- Modules.tsx (http://localhost:5173/Modules)
-   │
-   ├── Page loads → api.modules.list()
-   │
-   ▼
- ┌──────────────────────────────────────────────────────┐
- │ [🔍 Search modules by name or code...]               │  ← search bar
- ├──────────────────────────────────────────────────────┤
- │ Name          Code   Route      Status   Actions     │
- ├──────────────────────────────────────────────────────┤
- │ 📦 Accounts   ACC   /security  Active   ✏️  🗑️      │  ← parent row
- │   └─ 📦 ...   ...   ...        ...      ...          │  ← child (indented, parentId != null)
- │ 📦 Cutting    CUT   /Cutting   Active   ✏️  🗑️      │
- │ 📦 Fabric     FAB   /hrm       Active   ✏️  🗑️      │
- └──────────────────────────────────────────────────────┘
-   │
-   ├── Search bar: filters by name OR code (case-insensitive, real-time)
-   │
-   ├── Tree view: Modules with parentId=null are top-level.
-   │   Children render indented with "└─" prefix.
-   │   Sorted alphabetically within each level.
-   │
-   ├── Edit (✏️): Opens create/edit modal pre-filled with module data
-   │
-   └── Delete (🗑️): Inline confirmation "Delete?" [Yes] [No]
-       → api.modules.remove(id) → DELETE /api/modules/{id}
-       → Backend soft-deletes (IsActive=false, UpdatedAt=UtcNow)
-       → UI refreshes list
-```
-
-### Key files for Modules page:
-- `Central_auth/src/pages/Modules.tsx` — search bar, tree rendering (parentId from DTO), delete confirmation, Manage Permissions modal
-- `Central_auth/src/lib/api.ts` — `api.modules.remove(id)`, `api.modules.permissions(id)`, `api.modules.updatePermissions(id, ids)` functions
-- `Central_auth_api/Controllers/ModulesController.cs` — `GET /api/modules/accessible`, `GET|PUT /api/modules/{id}/permissions`
-- `Central_auth_api/DTOs/RoleDtos.cs` — `ModuleListItemDto` record includes `ParentId`
-
-### 4e. Admin assigns permissions to modules (Module ↔ Permission junction)
-
-```
- Modules.tsx → click shield icon on a module row
-   │
-   ▼
- ┌────────────────────────────────────────────────────────────────┐
- │  Manage Permissions — Cutting                                  │
- │  ┌──────────────────────────────────────────────────────────┐  │
- │  │ [🔍 Search permissions by name or code...]              │  │  ← search bar
- │  └──────────────────────────────────────────────────────────┘  │
- │  ┌──────────────────────────────────────────────────────────┐  │
- │  │ ☑ Inventory_ReadAccess    Inventory Read Access         │  │
- │  │ ☐ Inventory_WriteAccess   Inventory Write Access        │  │
- │  │ ☑ HR_FullAccess           HR Full Access                │  │
- │  │ ...                                                      │  │
- │  └──────────────────────────────────────────────────────────┘  │
- │  │  2 selected                        [Cancel] [Save]         │
- └────────────────────────────────────────────────────────────────┘
-   │
-   ├── Modal loads: fetch all permissions + current module's assigned permission IDs
-   │     api.permissions.list()  +  api.modules.permissions(id)
-   │
-   ├── User checks/unchecks permissions, clicks Save
-   │     → api.modules.updatePermissions(id, [ids])
-   │     → PUT /api/modules/{id}/permissions { permissionIds: [...] }
-   │
-   ├── Backend: deletes all existing ModulePermission rows for that module, inserts new ones
-   │     db.ModulePermissions.RemoveRange(module.ModulePermissions)
-   │     db.ModulePermissions.AddRange(new entries)
-   │
-   └── Result: auth_module_permissions now reflects the assignment
-         ┌────┬──────────┬──────────────┐
-         │ Id │ ModuleId │ PermissionId │
-         ├────┼──────────┼──────────────┤
-         │ 1  │ 1        │ 13           │
-         │ 2  │ 1        │ 5            │
-         └────┴──────────┴──────────────┘
-```
-
-### Sidebar consumption — `GET /api/modules/accessible`
-
-```
- Sidebar.tsx
-   │
-   ├── Mount → check localStorage("accessible_modules") cache (5 min TTL)
-   │
-   ├── Cache miss → api.modules.accessible()
-   │     → GET /api/modules/accessible
-   │     → Backend:
-   │        1. Get user's permission IDs from UserRoles → RolePermissions
-   │        2. Find modules where:
-   │           - Module has 0 ModulePermissions → visible to all
-   │           OR
-   │           - Module has ≥1 ModulePermission matching user's permission IDs
-   │        3. Sort by SortOrder → Name
-   │        4. Return ModuleAccessibleDto[]
-   │
-   ├── Cache hit → use cached modules immediately (no flicker)
-   │
-   └── Render "Applications" section in sidebar nav
-         ┌─ Applications ─────────────────────────┐
-         │  📦 Cutting        (href="/Cutting")   │
-         │  📦 Accounts       (href="/security")  │
-         │  ...                                   │
-         └────────────────────────────────────────┘
-```
-
-### Behavior rules:
-- **Module with 0 permissions assigned** → visible to **all** authenticated users (default-open)
-- **Module with ≥1 permission assigned** → visible **only** to users whose roles include at least one matching permission
-- **Cache key**: `accessible_modules` with shape `{ modules: ModuleAccessible[], fetchedAt: number }`
-- **Cache TTL**: 5 minutes; survives page refresh; re-fetches on expiry
-- **Middleware is unaffected**: Sidebar is UX-only; backend still enforces per-route access via `DynamicPermissionMiddleware`
-
-### Resulting MySQL relationship chain:
-
-```
-auth_users (id=19)
-  └── auth_userroles (AppUserId=19, RoleId=5)
-        └── auth_roles (id=5, Name="Inventory Manager")
-              └── auth_rolepermissions (RoleId=5, PermissionId=11)
-                    └── auth_permissions (id=11, Code="Inventory_FullAccess")
+```typescript
+// auth.ts — getPermissions()
+const payload = session.token.split('.')[1];
+const decoded = JSON.parse(atob(payload));
+// returns decoded.permission (array of strings)
 ```
 
 ---
 
-## 5. THE BACKEND MIDDLEWARE GUARD
+## 6. Admin Configuration Flows
 
-When a request hits the .NET API, `DynamicPermissionMiddleware` intercepts it before it reaches the controller.
+### 6a. Roles Page — Module→Route Tree
 
 ```
- HTTP Request                         DynamicPermissionMiddleware
- ────────────                         ──────────────────────────
-                                           │
- fetch("/api/inventory")                   │
- Authorization: Bearer eyJ...              │
-   │                                       │
-   ▼                                       │
- Program.cs pipeline                       │
-   │                                       │
-   ├─ app.UseAuthentication()  → JWT decoded, ClaimsPrincipal built
-   ├─ app.UseAuthorization()
-   ├─ app.UseMiddleware<DynamicPermissionMiddleware>()
-   │                                       │
-   │                                       ├─ path = "/api/inventory"
-   │                                       ├─ method = "GET"
-   │                                       │
-   │                                       ├─ BypassPrefixes check:
-   │                                       │    ("/swagger", "/health", "/api/auth")
-   │                                       │    → No match, continue
-   │                                       │
-   │                                       ├─ GetCachedRoutesAsync()
-   │                                       │    │
-   │                                       │    ├─ Cache hit? (IMemoryCache, 5 min sliding)
-   │                                       │    │   ├─ YES → use cached list
-   │                                       │    │   └─ NO  → SELECT *             ──► auth_api_service_routes
-   │                                       │    │             FROM auth_api_service_routes
-   │                                       │    │             WHERE IsActive=1
-   │                                       │    │             → cache for 5 min
-   │                                       │    │
-   │                                       │    ▼
-   │                                       │    Routes loaded:
-   │                                       │    ┌─────────────────────┬─────┬─────────────────────────┐
-   │                                       │    │ RoutePattern        │Method│ RequiredPermissionCode │
-   │                                       │    ├─────────────────────┼─────┼─────────────────────────┤
-   │                                       │    │ /api/receipts       │ GET │ FabricsReceiving_...    │
-   │                                       │    │ /api/admin          │ GET │ Administration_FullAccess│
-   │                                       │    │ /api/fabrics        │ GET │ Fabrics_FullAccess      │
-   │                                       │    │ /api/orders         │ GET │ Orders_FullAccess       │
-   │                                       │    │ /api/inventory      │ GET │ Inventory_FullAccess    │
-   │                                       │    │ /api/reports        │ GET │ Reports_FullAccess      │
-   │                                       │    └─────────────────────┴─────┴─────────────────────────┘
-   │                                       │
-   │                                       ├─ MatchPattern("/api/inventory", "/api/inventory")
-   │                                       │    → Match found!
-   │                                       │    → requiredCode = "Inventory_FullAccess"
-   │                                       │
-   │                                       ├─ user.Identity?.IsAuthenticated?
-   │                                       │    │
-   │                                       │    ├─ NO  → 401 { message: "Authentication required." }
-   │                                       │    │          Return early
-   │                                       │    │
-   │                                       │    └─ YES → continue
-   │                                       │
-   │                                       ├─ user.HasClaim("permission", "Inventory_FullAccess")
-   │                                       │    │
-   │                                       │    │  Checks the JWT claims that were decoded
-   │                                       │    │  by Authentication middleware earlier:
-   │                                       │    │
-   │                                       │    │  JWT Payload:
-   │                                       │    │  {
-   │                                       │    │    "permission": [
-   │                                       │    │      "Inventory_FullAccess"    ←── exists!
-   │                                       │    │    ]
-   │                                       │    │  }
-   │                                       │    │
-   │                                       │    ├─ Claim FOUND
-   │                                       │    │    → await _next(context)
-   │                                       │    │    → passes to controller
-   │                                       │    │    → TestEndpointsController.GetInventory()
-   │                                       │    │    → 200 OK { module: "Inventory", status: "ok" }
-   │                                       │    │
-   │                                       │    └─ Claim NOT FOUND
-   │                                       │         → 403 Forbidden
-   │                                       │         → { message: "Insufficient permissions.",
-   │                                       │             requiredPermission: "Inventory_FullAccess" }
-   │                                       │
-   ▼                                       ▼
-  Response                                Response
+Roles.tsx (http://localhost:5173/roles)
+  │
+  ├── Left column: role cards (name, user count, permission count, color-coded)
+  │
+  └── Right column: detail panel when a role is selected
+       │
+       ├── Role info + permission coverage bar (X of Y permissions granted, %)
+       │
+       ├── Module Access (read-only tree):
+       │   Modules (expandable) →
+       │     └── Routes with checkmarks (green = granted, muted = not)
+       │
+       └── Edit button → opens modal with interactive module→route tree:
+            Module name [Select All]
+              ├─ ☐ [GET] /api/receipts
+              ├─ ☑ [POST] /api/receipts
+              └─ ☐ [DELETE] /api/receipts/{id}
 ```
 
-### Key code:
+**Key implementation details:**
+- `allModuleNodes` (line ~163): built from `allModules.map()` — one node per module containing its permissions + routes
+- `moduleNodes` (line ~160): filtered down to modules that have at least one permission or route (for read-only right panel)
+- `permIdByCode` (line 151): `Object.fromEntries(allPermissions.map(p => [p.code, p.id]))` — maps permission codes to IDs for toggle
+- HTTP method badges use `METHOD_COLORS` map for consistent coloring
+- Coverage bar: `selectedIds.length / totalPerms` from RoleDetail + allPermissions
 
-**`DynamicPermissionMiddleware.cs:57-69`** — the critical enforcement:
-```csharp
-var hasPermission = user.HasClaim(c =>
-    c.Type == "permission" && c.Value == match.RequiredPermissionCode);
-
-if (!hasPermission)
-{
-    context.Response.StatusCode = 403;
-    context.Response.ContentType = "application/json";
-    await context.Response.WriteAsync(JsonSerializer.Serialize(new
-    {
-        message = "Insufficient permissions.",
-        requiredPermission = match.RequiredPermissionCode
-    }));
-    return;
+**Save flow (PUT /api/roles/{id}):**
+```
+selectedPerms = [id1, id2, ...]  ← from checked routes/permissions
+PUT /api/roles/{id} {
+  name, description, isActive,
+  permissionIds: selectedPerms
 }
-
-await _next(context);
+Backend: deletes all RolePermission rows, inserts new ones
 ```
 
-**`DynamicPermissionFilter.cs:56-69`** — identical logic as `IAsyncAuthorizationFilter` (redundant safety layer).
+### 6b. User Access Page — 3-Section Hub
+
+```
+UserAccess.tsx (http://localhost:5173/user-access)
+  │
+  ├── User Selector: searchable dropdown of up to 100 users
+  │
+  ├── Section 1: Role Assignment (PUT /api/users/{id}/roles)
+  │     ☑ Super Admin
+  │     ☐ Inventory Manager
+  │     ☐ HR Manager
+  │     ☑ Viewer
+  │     [Save Roles] → sends { roleIds: [1, 4] }
+  │
+  ├── Section 2: Direct Module Access (PUT /api/users/{id}/modules)
+  │     ☑ Cutting
+  │     ☐ Fabrics Receiving
+  │     ☐ Inventory
+  │     [Save Modules] → sends { moduleIds: [1] }
+  │
+  └── Section 3: Direct Route Access (PUT /api/users/{id}/routes)
+       Cutting (expandable)
+         ├─ ☑ [GET] /api/cutting
+         └─ ☐ [POST] /api/cutting
+       Fabrics Receiving (expandable)
+         └─ ☐ [GET] /api/receipts
+       [Save Routes] → sends { routeIds: [2, 5] }
+```
+
+**Key implementation details:**
+- `userRoleIds` is derived from `allRoles.filter(r => user.roles.includes(r.name))` — name-based matching
+- `directModuleIds` / `directRouteIds` are fetched from dedicated endpoints (`GET /api/users/{id}/modules`, `GET /api/users/{id}/routes`)
+- Each section has independent `saving`/`error`/`success` state + its own Save button
+- Module expansion uses `m.id` for unique keys (not `m.name`)
+- Routes by module: computed via `modules.map(m => ({ module: m, routes: allRoutes.filter(r => r.moduleId === m.id) }))`
+
+### 6c. Modules Page — Route Registration
+
+```
+Modules.tsx (http://localhost:5173/Modules)
+  │
+  ├── Tree table: parent modules with expandable children (parentId from DTO)
+  │   Name / Code / Route / Status / Actions
+  │     └── Children indented with "└─" prefix
+  │
+  ├── Each module row has:
+  │   [Manage Permissions 🔒] → modal: searchable permission checkboxes
+  │   [▶ Routes (N)] → expand to show route table
+  │     ├── Route rows: Method badge + Pattern + Permission + [Test] [Delete]
+  │     └── [+ Add Route] → modal: method, pattern, permission code (datalist), description
+  │
+  └── Search bar: filters by name or code (case-insensitive, real-time)
+```
+
+**Route registration (POST /api/modules/{id}/routes):**
+```json
+{
+  "httpMethod": "GET",
+  "routePattern": "/api/inventory",
+  "requiredPermissionCode": "Inventory_FullAccess"
+}
+```
+- Creates row in `auth_api_service_routes`
+- Invalidates `IMemoryCache` key `"DynamicPermissionRoutes"` (5-min sliding)
+- Duplicate `(HttpMethod, RoutePattern)` returns 500 (DB unique index)
 
 ---
 
-## 6. THE CLIENT-SIDE ROUTE GUARD
+## 7. Backend Middleware Guard
 
-```
- Browser navigation                  React Router                   localStorage
- ──────────────                      ────────────                   ────────────
+### Pipeline Order
 
- User types URL or clicks sidebar link
-   │
-   ▼
- <BrowserRouter> in App.tsx
-   │
-   ├── Path: "/login"
-   │   └── <Route path="/login" element={<Login />} />
-   │        → No guard — everyone can reach login
-   │
-    ├── Path: "/dashboard", "/roles", "/users", "/modules", etc.
-   │   │
-   │   ▼
-   │   <ProtectedRoute />
-   │   │
-   │   ├── ProtectedRoute.tsx:5
-   │   │   const session = getSession();
-   │   │   return session ? <Outlet /> : <Navigate to="/login" replace />;
-   │   │
-   │   │   getSession() in auth.ts:
-   │   │     ├─ localStorage.getItem("central_auth_session")
-   │   │     ├─ if null → return null
-   │   │     ├─ JSON.parse(raw)
-   │   │     ├─ new Date(s.expiresAt) < new Date()?
-   │   │     │    ├─ YES → clearSession(), return null
-   │   │     │    └─ NO  → return { token, expiresAt, user }
-   │   │     └─ catch error → return null
-   │   │
-   │   ├── Session null?
-   │   │    ├─ YES → <Navigate to="/login" replace />
-   │   │    └─ NO  → <Outlet />
-   │   │             │
-   │   │             ▼
-   │   │         <Layout />
-   │   │           ├── <Sidebar />  (navigation links)
-   │   │           ├── <Header />   (user info, logout)
-   │   │           └── <Outlet />   (page content)
-   │   │
-   │   └── Also: API layer guard in api.ts:31-33
-   │        If any API call returns 401:
-   │          clearSession() + redirect to /login
-   │
-   └── Path: anything else
-       └── <Navigate to="/dashboard" replace />
+```csharp
+// Program.cs
+app.UseAuthentication();                                // JWT → ClaimsPrincipal
+app.UseAuthorization();                                 // Policy auth
+app.UseMiddleware<DynamicPermissionMiddleware>();        // Route-permission enforcement
+app.MapControllers();                                   // Controller routing
 ```
 
-### Guard layers summary:
+### DynamicPermissionMiddleware Flow
+
+```
+HTTP Request: GET /api/inventory
+Authorization: Bearer eyJ...
+  │
+  ▼
+DynamicPermissionMiddleware.InvokeAsync()
+  │
+  ├── Bypass check: path starts with /swagger, /health, /api/auth?
+  │     ├── YES → await _next(context)
+  │     └── NO  → continue
+  │
+  ├── GetCachedRoutesAsync()
+  │     ├── Cache hit? (IMemoryCache, sliding 5 min)
+  │     │     ├── YES → use cached list
+  │     │     └── NO  → SELECT * FROM auth_api_service_routes
+  │     │                 WHERE IsActive=1
+  │     │                 → cache for 5 min
+  │     │
+  │     └── Routes include Id for direct-grant lookup
+  │
+  ├── MatchPattern(requestPath, requestMethod)
+  │     ├── No match → await _next(context)  [no guard for this route]
+  │     └── Match found → requiredCode = match.RequiredPermissionCode
+  │
+  ├── IsAuthenticated?
+  │     ├── NO  → 401 { message: "Authentication required." }
+  │     └── YES → continue
+  │
+  ├── Direct Route Grant Check (Layer 3)
+  │     ├── Create new scope → query auth_user_api_routes
+  │     │   AnyAsync(ur => ur.AppUserId == userId && ur.ApiServiceRouteId == match.Id)
+  │     │
+  │     ├── YES → await _next(context)  [bypass permission claim check]
+  │     └── NO  → continue to claim check
+  │
+  ├── Claim Check (Layer 1)
+  │     ├── user.HasClaim("permission", requiredCode)
+  │     │
+  │     ├── YES → await _next(context)  → 200 OK
+  │     └── NO  → 403 Forbidden
+  │               { message: "Insufficient permissions.",
+  │                 requiredPermission: requiredCode }
+  │
+  ▼
+Response to client
+```
+
+### Pattern Matching
+
+```csharp
+// Supports {param} placeholders:
+//   Pattern: /api/inventory/{id}
+//   Request: /api/inventory/42
+//   Result:  Match (segments split by '/', {param} matches any value)
+//
+// HTTP method matching:
+//   "*" pattern in DB matches any method
+//   Otherwise exact match (case-insensitive)
+```
+
+### DynamicPermissionFilter (Redundant Safety Layer)
+
+Applied via `[ServiceFilter(typeof(DynamicPermissionFilter))]` on `TestEndpointsController`. Same logic as middleware but runs as `IAsyncAuthorizationFilter` — provides defense-in-depth in case middleware is misconfigured or bypassed.
+
+---
+
+## 8. Client-Side Guards
+
+### Guard Layers
 
 | Layer | Location | What it guards | Trigger |
-|---|---|---|---|
+|-------|----------|---------------|---------|
 | React Router | `ProtectedRoute.tsx` | All admin pages | Navigation (URL change) |
-| API fetch wrapper | `api.ts:31-33` | Backend API calls | 401 response from server |
-| JWT expiry | `auth.ts:22` | Session validity | `expiresAt` timestamp |
+| API fetch wrapper | `api.ts:req()` | Backend API calls | 401 response from server |
+| JWT expiry | `auth.ts:getSession()` | Session validity | `expiresAt` timestamp |
+| Sidebar | `Sidebar.tsx` | Dynamic app links | `GET /api/modules/accessible` (5-min cache) |
+
+### ProtectedRoute.tsx (7 lines)
+
+```tsx
+const session = getSession();
+return session ? <Outlet /> : <Navigate to="/login" replace />;
+```
+
+Checks:
+1. `localStorage.getItem("central_auth_session")` — null?
+2. `JSON.parse()` — throws?
+3. `new Date(s.expiresAt) < new Date()` — expired?
+4. Any fail → `clearSession()` → redirect to `/login`
+
+### API Layer Guard (api.ts:31-33)
+
+```typescript
+if (res.status === 401) {
+  handleUnauthorized();  // clears session + redirects to /login
+  throw new Error("Unauthorized");
+}
+```
+
+### Sidebar Module Cache (Sidebar.tsx)
+
+```
+Mount → check localStorage("accessible_modules")
+  ├── Cache hit + < 5 min old → use cached modules immediately
+  └── Cache miss / expired → api.modules.accessible()
+        → GET /api/modules/accessible
+        → Cache result with current timestamp
+        → Render "Applications" nav section
+```
+
+**`clearAccessibleModulesCache()`** — called after any role/permission/module/route save to force sidebar refresh.
 
 ---
 
-## 7. COMPLETE DATA FLOW DIAGRAM
+## 9. Complete Data Flow
+
+### End-to-End: Admin creates role → assigns user → user accesses route
 
 ```
- ┌──────────────────────────────────────────────────────────────────────────────────────┐
- │                            FULL RBAC DATA FLOW                                        │
- └──────────────────────────────────────────────────────────────────────────────────────┘
+── PHASE 1: ADMIN CONFIGURES ROLE ─────────────────────────────────
 
- ──── PHASE 2 ──── ADMIN CONFIGURES PERMISSIONS VIA REACT UI ───────────────────────────
+Roles.tsx                        POST /api/roles                 MySQL
+[module→route tree]  ──────────► RolesController.Create()  ────► auth_roles
+"Cutting.View" checked                                            auth_rolepermissions
+permissionIds: [5]                                                auth_permissions
 
-  Roles.tsx                              POST /api/roles                     MySQL
-  [checkboxes]  ──────────────────────►  RolesController.Create()  ──────►  auth_roles
-  "Inventory_FullAccess" checked                                              auth_rolepermissions
-  permissionIds: [11]                                                         auth_permissions
 
- ──── PHASE 1 ──── USER LOGS IN, JWT GENERATED ─────────────────────────────────────────
+── PHASE 2: ADMIN ASSIGNS ROLE TO USER ───────────────────────────
 
-  Login.tsx                              POST /api/auth/login               MySQL
-  email + password  ──────────────────►  AuthController.Login()  ────────►  auth_users (verify)
-                       │                                                     auth_userroles (load)
-                       │                                                     auth_rolepermissions (load)
-                       │                                                     auth_permissions (load codes)
-                       ▼
-                  JWT built with claims:
-                   permission: ["Inventory_FullAccess"]
-                       │
-                       ▼
-                  Response: { accessToken, expiresAt, user }
-                       │
-                       ▼
-                  Login.tsx:23
-                  saveSession({ token: res.accessToken, ... })
-                       │
-                       ▼
-                  localStorage.setItem("central_auth_session", JSON.stringify({...}))
+UserAccess.tsx                   PUT /api/users/19/roles          MySQL
+[select user 19]  ────────────► UsersController.UpdateRoles() ──► auth_userroles
+☑ Inventory Manager                                              (hard replace:
+{ roleIds: [5] }                                                   delete all, insert)
 
- ──── PHASE 4 ──── CLIENT-SIDE NAVIGATION GUARD ────────────────────────────────────────
 
-  Browser URL change
-       │
-       ▼
-  ProtectedRoute.tsx:5
-  getSession()  ──►  localStorage.getItem("central_auth_session")
-       │
-       ├── null/expired → Navigate to /login
-       └── valid → Outlet (render page)
+── PHASE 3: USER LOGS IN ─────────────────────────────────────────
 
- ──── PHASE 3 ──── MOCK PAGE CHECKS PERMISSION VIA BACKEND ─────────────────────────────
+Login.tsx                        POST /api/auth/login            MySQL
+email + password  ─────────────► AuthController.Login()  ──────► auth_appusers
+                                                                   auth_userroles
+                                                                   auth_rolepermissions
+                                                                   auth_permissions
+  │
+  ├─ permissions: ["Cutting.View"]
+  ├─ JWT { sub: 19, permission: ["Cutting.View"] }
+  └─ localStorage: central_auth_session
 
-  MockAppController                       fetch("/api/inventory")           DynamicPermissionMiddleware
-  (browser HTML/JS)  ──────────────────►  Bearer token attached  ──────────►
-       │                                                                     │
-       │  window.onload()                                                    ├─ Match route pattern?
-       │  localStorage.getItem(                                              │    /api/inventory → Inventory_FullAccess
-       │    "central_auth_session")                                          │
-       │  → JSON.parse → session.token                                      ├─ HasClaim("permission",
-       │  → fetch("/api/inventory", {                                       │    "Inventory_FullAccess")?
-       │      Authorization: "Bearer eyJ..." })                              │    │
-       │                                                                    │    ├─ YES → 200 OK
-       │                                                                    │    └─ NO  → 403 Forbidden
-       │                                                                    │
-       ▼                                                                    ▼
-  JS handles response:
-  200 → "✅ Access Granted!"
-  401 → alert + redirect to /swagger
-  403 → alert + redirect to /swagger
 
-  ──── PHASE 5 ──── REGISTER API ROUTES VIA MODULES UI ────────────────────────────────────
+── PHASE 4: USER HITS PROTECTED ROUTE ────────────────────────────
 
-   Modules.tsx
-   [expand module section]               api.modules.routes          ModulesController        MySQL
-     │                                         .list(moduleId)         GET /api/modules/{id}/routes
-     ├──► routes displayed ◄─────────────────────────────────────────────────────────────── auth_api_service_routes
-     │
-     ├──► Click "+ Add Route"
-     │      │
-     │      │  httpMethod: "GET"
-     │      │  routePattern: "/api/inventory"
-     │      │  requiredPermissionCode: "Inventory_FullAccess"
-     │      │
-     │      ▼
-     │   api.modules.routes              POST /api/modules/{id}/routes   AddRoute()
-     │     .create(moduleId,             ─────────────────►  │                              │
-     │       payload)                                         │  1. Validate required fields  │
-     │                                                        │  2. INSERT INTO               │
-     │                                                        │     auth_api_service_routes  ──► INSERT
-     │                                                        │  3. InvalidateCache()        │
-     │                                                        │     (IMemoryCache reset)     │
-     │                                                        └── 201 Created                │
-     │                                                                                        │
-     └──► UI refreshes route list (re-fetches api.modules.routes.list(moduleId))
+fetch("GET /api/cutting")        DynamicPermissionMiddleware
+Authorization: Bearer eyJ...
+  │
+  ├── Match → /api/cutting → RequiredPermissionCode = "Cutting.View"
+  ├── Direct grant? → NO (not in auth_user_api_routes)
+  ├── HasClaim("permission", "Cutting.View")? → YES
+  ├── await _next(context)
+  ▼
+200 OK { module: "Cutting", status: "ok" }
 
-  ──── AWAIT RESPONSE ────────────────────────────────────────────────────────────────────
 
-  /mock-apps/Inventory   →  fetch /api/inventory   →  200 ✅ Access Granted
-  /mock-apps/Fabrics     →  fetch /api/fabrics     →  403 🔒 Redirect to /swagger
-  /mock-apps/Orders      →  fetch /api/orders      →  403 🔒 Redirect to /swagger
-  /mock-apps/Reports     →  fetch /api/reports     →  403 🔒 Redirect to /swagger
-  /mock-apps/FabricsReceiving/Receipts  →  fetch /api/receipts  →  403 🔒 Redirect
-  /mock-apps/Admin/Dashboard            →  fetch /api/admin     →  403 🔒 Redirect
+── PHASE 5: USER WITHOUT PERMISSION HITS SAME ROUTE ──────────────
+
+fetch("GET /api/cutting")        DynamicPermissionMiddleware
+Authorization: Bearer eyJ...     (no Cutting.View claim)
+  │
+  ├── Match → /api/cutting → "Cutting.View"
+  ├── Direct grant? → NO
+  ├── HasClaim? → NO
+  ▼
+403 Forbidden { message: "Insufficient permissions.",
+                requiredPermission: "Cutting.View" }
 ```
 
 ---
 
-## 8. ROUTE PROTECTION MATRIX
+## 10. Key Design Decisions
+
+### Why `Permission.Code` is a string (not FK) in ApiServiceRoute
+
+`RequiredPermissionCode` on `ApiServiceRoute` is a string, not a FK to `auth_permissions`. This is intentional:
+- Routes exist in downstream services that may not share the same DB
+- Permission codes are stable identifiers that rarely change
+- The middleware does a string claim match against the JWT — no DB join needed at runtime
+- A `Permission` with matching Code must exist in the system for the UI to toggle it
+
+### Why direct grants are additive (no deny in v1)
+
+The access resolution order is **union** — role-derived permissions + direct module grants + direct route grants = effective permissions. There is no deny mechanism because:
+- The original requirement was "just give this user access to module X regardless of role"
+- Deny semantics would require a priority resolution algorithm (deny > grant, which layer wins?)
+- Can be added as a future layer if needed
+
+### Why RoleModule was removed
+
+The old `auth_rolemodules` table directly bound roles to modules. This was redundant because:
+- Module visibility is already determined by `ModulePermission` (module ↔ permission junction)
+- A role grants permissions, and those permissions unlock modules
+- Removing it simplified the data model and eliminated a source of inconsistency
+
+### Why Roles page uses module→route tree (not grouped permissions)
+
+The old UI showed permissions grouped by `GroupName` (e.g., "Modules", "HR Management"). The new tree shows:
+- Top level: modules (matching `ModulePermission` structure)
+- Expandable: routes within each module (matching `ApiServiceRoute` structure)
+- This aligns with how the backend enforces access — modules = sidebar visibility, routes = endpoint access
+
+### Why Permissions page was deleted
+
+The permissions page was removed because:
+- Permission definitions are created implicitly via the Roles page editing interface
+- Managing permission codes directly was an unnecessary abstraction for admin users
+- The Modules page still has a "Manage Permissions" modal for binding permissions to modules
+
+### Why UserForm no longer has role assignment
+
+Roles were removed from the Users page create/edit modal and moved to the User Access page because:
+- User Access is the single hub for all user-specific access (roles, modules, routes)
+- Users page is now purely for identity/profile data (name, email, department, designation)
+- This separation follows the principle of single responsibility
+
+---
+
+## 11. Route Protection Matrix
 
 For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permission):
 
-### 8a. Mock pages (client-side redirect engine)
+### Mock Pages (client-side redirect engine)
 
 | Page URL | fetch target | JWT has matching claim? | Result |
-|---|---|---|---|
+|----------|-------------|------------------------|--------|
 | `/mock-apps/Inventory` | `/api/inventory` | ✅ `Inventory_FullAccess` | 200 ✅ |
 | `/mock-apps/Fabrics` | `/api/fabrics` | ❌ `Fabrics_FullAccess` | 403 🔒 |
 | `/mock-apps/Orders` | `/api/orders` | ❌ `Orders_FullAccess` | 403 🔒 |
 | `/mock-apps/Reports` | `/api/reports` | ❌ `Reports_FullAccess` | 403 🔒 |
 | `/mock-apps/FabricsReceiving/Receipts` | `/api/receipts` | ❌ `FabricsReceiving_Receipts_View` | 403 🔒 |
 | `/mock-apps/Admin/Dashboard` | `/api/admin` | ❌ `Administration_FullAccess` | 403 🔒 |
-| `/mock-apps/HR` | `/api/hr` | ❌ (no `HR_FullAccess`) | 403 🔒 |
+| `/mock-apps/HR` | `/api/hr` | ❌ `HR_FullAccess` | 403 🔒 |
 
-### 8b. React admin pages (client-side route guard)
+### React Admin Pages (client-side route guard)
 
 | Route | ProtectedRoute | Notes |
-|---|---|---|
+|-------|---------------|-------|
 | `/login` | ❌ No | Public — unauthenticated users can reach it |
-| `/dashboard` | ✅ Yes | Requires valid session in localStorage |
-| `/roles` | ✅ Yes | Requires valid session |
+| `/dashboard` | ✅ Yes | Requires valid session |
 | `/users` | ✅ Yes | Requires valid session |
-| `/permissions` | ✅ Yes | Requires valid session |
-| `/modules` | ✅ Yes | Requires valid session |
+| `/roles` | ✅ Yes | Requires valid session |
+| `/user-access` | ✅ Yes | Requires valid session |
+| `/Modules` | ✅ Yes | Capital M (matches file system) |
 | `/tenants` | ✅ Yes | Requires valid session |
+| `/departments` | ✅ Yes | Requires valid session |
+| `/designations` | ✅ Yes | Requires valid session |
 | `/sessions` | ✅ Yes | Requires valid session |
 | `/audit` | ✅ Yes | Requires valid session |
+| `/access-tester` | ✅ Yes | Requires valid session |
+| `/apps/:moduleId` | ✅ Yes | Dynamic module pages |
 
-> **Note:** The `ProtectedRoute` only checks for token **existence + expiry**. It does NOT check permission claims. Permission-based feature gating within admin pages would need additional logic (e.g., checking specific claims on the JWT payload).
+> **Note:** ProtectedRoute only checks token existence + expiry. There is no frontend-side permission gating — all authorization enforcement is at the API level via DynamicPermissionMiddleware.
 
-### 8c. Route management via Modules UI
+### Route Management via Modules UI
 
 | Action | UI Location | API Endpoint | Effect |
 |--------|------------|--------------|--------|
 | List routes | Expand module chevron | `GET /api/modules/{id}/routes` | Shows routes table per module |
-| Add route | Click "+ Add Route" in expanded section | `POST /api/modules/{id}/routes` | Creates route, invalidates middleware cache |
-| Delete route | Click trash icon on route row | `DELETE /api/modules/{id}/routes/{routeId}` | Soft-deletes (IsActive=false), invalidates cache |
+| Add route | Click "+ Add Route" | `POST /api/modules/{id}/routes` | Creates route, invalidates middleware cache |
+| Update route | Edit route form | `PUT /api/modules/{id}/routes/{routeId}` | Updates route, invalidates cache |
+| Delete route | Trash icon on route row | `DELETE /api/modules/{id}/routes/{routeId}` | Soft-deletes (IsActive=false), invalidates cache |
 
 ---
 
----
-
-## 9. Verified Test Results
-
-Full end-to-end test run on `iftiyeamin06@gmail.com` (roles: Super Admin, HR Manager; permissions: `HR_FullAccess`, `user.*`, `role.*`):
-
-| # | Action | Result |
-|---|--------|--------|
-| 1 | `POST /api/auth/login` | **200** — JWT contains `HR_FullAccess` permission claim |
-| 2 | `GET /api/modules` | **200** — 5 modules returned with `parentId` (tree hierarchy works) |
-| 3 | `POST /api/modules/7/routes` → `/api/hr` → `HR_FullAccess` | **201** — Route created |
-| 4 | `POST /api/modules/6/routes` → `/api/fabrics` → `Fabrics_FullAccess` | **201** — Route created |
-| 5 | `POST /api/modules/8/routes` → `/api/inventory` → `Inventory_FullAccess` | **201** — Route created |
-| 6 | `POST /api/modules/6/routes` → `/api/orders` → `Orders_FullAccess` | **201** — Route created |
-| 7 | `POST /api/modules/6/routes` → `/api/reports` → `Reports_FullAccess` | **201** — Route created |
-| 8 | `POST /api/modules/6/routes` → `/api/receipts` → `FabricsReceiving_Receipts_View` | **201** — Route created |
-| 9 | `POST /api/modules/6/routes` → `/api/admin` → `Administration_FullAccess` | **201** — Route created |
-| 10 | `GET /api/hr` (has `HR_FullAccess`) | **200** — `{"module":"HR","status":"ok"}` |
-| 11 | `GET /api/fabrics` (no `Fabrics_FullAccess`) | **403** — Forbidden |
-| 12 | `GET /api/inventory` (no `Inventory_FullAccess`) | **403** — Forbidden |
-| 13 | `GET /api/orders` (no `Orders_FullAccess`) | **403** — Forbidden |
-| 14 | `GET /api/reports` (no `Reports_FullAccess`) | **403** — Forbidden |
-| 15 | `GET /api/receipts` (no `FabricsReceiving_Receipts_View`) | **403** — Forbidden |
-| 16 | `GET /api/admin` (no `Administration_FullAccess`) | **403** — Forbidden |
-| 17 | `GET /mock-apps/HR` (served by MockAppController) | **200** — 3492 bytes HTML |
-| 18 | `GET /api/modules/accessible` | **200** — All 5 modules visible (none have `auth_module_permissions` entries) |
-| 19 | `GET /api/hr` via Vite proxy (`localhost:5173`) | **200** — Proxy forwarding works |
-| 20 | `GET /mock-apps/HR` via Vite proxy (`localhost:5173`) | **200** — 3492 bytes HTML |
-
-**Duplicate route registration:** Attempting to create a route with same `HttpMethod`+`RoutePattern` as an existing row returns **500** (unique index violation on `IX_auth_api_service_routes_HttpMethod_RoutePattern`).
-
----
-
-## Quick Reference: Key Files
-
-### Frontend (React)
+## Key Files Reference
 
 | File | Purpose |
-|---|---|
-| `Central_auth/src/lib/api.ts` | All API calls, fetch wrapper, types/interfaces (includes `api.modules.routes.*`, `api.modules.permissions.*`) |
-| `Central_auth/src/lib/auth.ts` | localStorage session management (get/save/clear) |
-| `Central_auth/src/components/ProtectedRoute.tsx` | Route guard component |
-| `Central_auth/src/components/Sidebar.tsx` | Hardcoded admin nav + dynamic "Applications" section (localStorage cache, 5 min TTL, from `accessible_modules` key) |
-| `Central_auth/src/App.tsx` | Router with all routes |
-| `Central_auth/src/pages/Login.tsx` | Login form, saves session to localStorage |
-| `Central_auth/src/pages/Roles.tsx` | Role CRUD with permission checkboxes |
-| `Central_auth/src/pages/Users.tsx` | User CRUD with role assignment |
-| `Central_auth/src/pages/Permissions.tsx` | Permission CRUD with create/delete, group dropdown from modules |
-| `Central_auth/src/pages/Modules.tsx` | Module CRUD + route management (expandable sections with chevron, add/edit/delete routes, HTTP method dropdown + permission datalist) + Manage Permissions modal (permission search + multi-select) |
-| `Central_auth/src/components/UserForm.tsx` | User create/edit form with role multi-select |
-| `Central_auth/vite.config.ts` | Dev server proxy config (/api, /auth, /mock-apps) |
-
-### Backend (.NET 8)
-
-| File | Purpose |
-|---|---|
-| `Central_auth_api/Controllers/AuthController.cs` | Login endpoint, JWT generation with permission claims |
-| `Central_auth_api/Controllers/RolesController.cs` | Role CRUD with permission assignment |
-| `Central_auth_api/Controllers/UsersController.cs` | User CRUD with role assignment |
-| `Central_auth_api/Controllers/ModulesController.cs` | Module CRUD + `GET /accessible` (sidebar), `GET|POST|PUT|DELETE /{id}/routes` (route management), `GET|PUT /{id}/permissions` (permission assignment) |
-| `Central_auth_api/Filters/DynamicPermissionMiddleware.cs` | Middleware that enforces route permissions |
-| `Central_auth_api/Filters/DynamicPermissionFilter.cs` | Filter (alternative enforcement layer) |
-| `Central_auth_api/Controllers/TestEndpointsController.cs` | Protected backend data stubs |
-| `Central_auth_api/Controllers/MockAppController.cs` | HTML mock pages with JS security guard |
-| `Central_auth_api/Program.cs` | Service registration, middleware pipeline |
-| `Central_auth_api/Data/CentralAuthDbContext.cs` | EF Core DbContext, audit trail |
-| `Central_auth_api/Models/ModulePermission.cs` | Junction entity for `auth_module_permissions` table (ModuleId ↔ PermissionId) |
-| `Central_auth_api/Models/ApiServiceRoute.cs` | Route entity with ModuleId FK (no more ServiceId), RequiredPermissionCode for middleware |
+|------|---------|
+| `Central_auth_api/Controllers/UsersController.cs` | User CRUD, role/module/route assignment endpoints |
+| `Central_auth_api/Controllers/RolesController.cs` | Role CRUD with permission sync |
+| `Central_auth_api/Controllers/ModulesController.cs` | Module CRUD, accessible endpoint, nested route CRUD |
+| `Central_auth_api/Filters/DynamicPermissionMiddleware.cs` | Global route-permission enforcement + direct grant bypass |
+| `Central_auth_api/Data/CentralAuthDbContext.cs` | DbContext with 25 DbSets and auto-audit |
+| `Central_auth/src/pages/Roles.tsx` | Module→route permission tree (modal + read-only) |
+| `Central_auth/src/pages/UserAccess.tsx` | 3-section access hub (roles, modules, routes) |
+| `Central_auth/src/pages/Modules.tsx` | Module CRUD, route management, permission binding |
+| `Central_auth/src/lib/api.ts` | All API endpoints, fetch wrapper with JWT + 401 redirect |
+| `Central_auth/src/lib/auth.ts` | Session management, JWT decode, permission extraction |

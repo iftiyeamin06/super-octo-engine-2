@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Shield, Users, Lock, Trash2, X, Loader2, RefreshCw, Pencil, ChevronDown, ChevronRight } from "lucide-react";
 import Badge from "../components/Badge";
 import { Skeleton } from "../components/Skeleton";
@@ -50,10 +50,11 @@ export default function Roles() {
   const [selectedPerms, setSelectedPerms] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   function loadRoles() {
     setLoadingList(true);
-    api.roles.list().then(setRoles).catch(() => {}).finally(() => setLoadingList(false));
+    api.roles.list().then(setRoles).catch(() => setLoadError("Failed to load roles")).finally(() => setLoadingList(false));
   }
 
   useEffect(() => {
@@ -62,12 +63,21 @@ export default function Roles() {
       setAllPermissions(perms);
       setAllModules(mods);
       setAllRoutes(routes);
-    }).catch(() => {});
+    }).catch(() => setLoadError("Failed to load permissions or modules"));
   }, []);
 
+  const selectRoleGen = useRef(0);
+
   function selectRole(r: RoleListItem) {
+    const gen = ++selectRoleGen.current;
     setLoadingDetail(true);
-    api.roles.detail(r.id).then(setSelected).catch(() => {}).finally(() => setLoadingDetail(false));
+    api.roles.detail(r.id).then(data => {
+      if (gen === selectRoleGen.current) setSelected(data);
+    }).catch(() => {
+      if (gen === selectRoleGen.current) setLoadError("Failed to load role details");
+    }).finally(() => {
+      if (gen === selectRoleGen.current) setLoadingDetail(false);
+    });
   }
 
   function openCreate() {
@@ -130,6 +140,9 @@ export default function Roles() {
       setModal(false);
       setEditingRole(null);
       loadRoles();
+      if (editingRole) {
+        api.roles.detail(editingRole.id).then(setSelected).catch(() => {});
+      }
     } catch (e: unknown) {
       setFormError(e instanceof Error ? e.message : (editingRole ? "Failed to update role" : "Failed to create role"));
     } finally { setSaving(false); }
@@ -137,10 +150,14 @@ export default function Roles() {
 
   async function deleteRole(id: number) {
     if (!confirm("Delete this role?")) return;
-    await api.roles.delete(id);
-    clearAccessibleModulesCache();
-    setSelected(null);
-    loadRoles();
+    try {
+      await api.roles.delete(id);
+      clearAccessibleModulesCache();
+      setSelected(null);
+      loadRoles();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to delete role");
+    }
   }
 
   const selectedIds = selected?.permissions.map(p => p.id) ?? [];
@@ -179,6 +196,11 @@ export default function Roles() {
         {loadingList ? (
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+          </div>
+        ) : loadError ? (
+          <div className="text-center py-12">
+            <p className="text-sm text-red-500">{loadError}</p>
+            <button onClick={loadRoles} className="mt-2 text-xs text-primary hover:underline">Retry</button>
           </div>
         ) : roles.length === 0 ? (
           <div className="text-center py-12 text-sm text-muted-foreground">No roles found</div>
@@ -295,7 +317,7 @@ export default function Roles() {
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-xs text-muted-foreground flex-shrink-0">{isExpanded ? "▼" : "▶"}</span>
                           <span className="text-sm font-medium text-foreground truncate">{module.name}</span>
-                          <span className="text-xs text-muted-foreground flex-shrink-0">({granted.length}/{allModulePermIds.length} pages)</span>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">({granted.length}/{allModulePermIds.length} permissions)</span>
                           {granted.length === allModulePermIds.length && <Badge variant="success">Full</Badge>}
                           {granted.length === 0 && <Badge variant="outline">None</Badge>}
                         </div>
@@ -375,7 +397,7 @@ export default function Roles() {
                   </label>
                   <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
                     {allModuleNodes.map(({ module, routes, permIds }) => {
-                      const routePermIds = routes.map(r => permIdByCode[r.requiredPermissionCode]).filter(Boolean) as number[];
+                  const routePermIds = routes.map(r => permIdByCode[r.requiredPermissionCode]).filter(x => x !== undefined) as number[];
                       const allModulePermIds = [...new Set([...permIds, ...routePermIds])];
                       const selectedCount = allModulePermIds.filter(id => selectedPerms.includes(id)).length;
                       const allSelected = allModulePermIds.length > 0 && selectedCount === allModulePermIds.length;

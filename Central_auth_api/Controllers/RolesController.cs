@@ -51,16 +51,25 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] RoleCreateDto dto)
     {
-        if (!dto.Name.Any()) return BadRequest("Name is required.");
+        if (string.IsNullOrWhiteSpace(dto.Name)) return BadRequest("Name is required.");
 
         var role = new Role { Name = dto.Name, Description = dto.Description, TenantId = dto.TenantId };
         db.Roles.Add(role);
         await db.SaveChangesAsync();
 
-        foreach (var pid in dto.PermissionIds)
-            db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
+        if (dto.PermissionIds is { Count: > 0 })
+        {
+            var validPermIds = await db.Permissions
+                .Where(p => dto.PermissionIds.Contains(p.Id) && p.IsActive)
+                .Select(p => p.Id)
+                .ToListAsync();
 
-        await db.SaveChangesAsync();
+            foreach (var pid in validPermIds)
+                db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
+
+            await db.SaveChangesAsync();
+        }
+
         return CreatedAtAction(nameof(GetById), new { id = role.Id }, new { role.Id });
     }
 
@@ -79,8 +88,16 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
 
         db.RolePermissions.RemoveRange(role.RolePermissions);
 
-        foreach (var pid in dto.PermissionIds)
-            db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
+        if (dto.PermissionIds is { Count: > 0 })
+        {
+            var validPermIds = await db.Permissions
+                .Where(p => dto.PermissionIds.Contains(p.Id) && p.IsActive)
+                .Select(p => p.Id)
+                .ToListAsync();
+
+            foreach (var pid in validPermIds)
+                db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = pid });
+        }
 
         await db.SaveChangesAsync();
         return NoContent();
@@ -89,7 +106,7 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
     [HttpDelete("{id:long}")]
     public async Task<ActionResult> Delete(long id)
     {
-        var role = await db.Roles.FindAsync(id);
+        var role = await db.Roles.FirstOrDefaultAsync(r => r.Id == id && r.IsActive);
         if (role is null) return NotFound();
         if (role.IsSystem) return BadRequest("System roles cannot be deleted.");
         role.IsActive = false; role.UpdatedAt = DateTime.UtcNow;

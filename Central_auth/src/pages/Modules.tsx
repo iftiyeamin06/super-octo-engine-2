@@ -58,11 +58,13 @@ export default function Modules() {
     }));
   }, [filtered]);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const load = () => {
     setLoading(true);
     Promise.all([api.modules.list(), api.permissions.list()])
-      .then(([mods, perms]) => { setItems(mods); setPermissionsList(perms); })
-      .catch(() => {}).finally(() => setLoading(false));
+      .then(([mods, perms]) => { setItems(mods); setPermissionsList(perms); setLoadError(null); })
+      .catch(() => setLoadError("Failed to load modules")).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
@@ -75,12 +77,12 @@ export default function Modules() {
   }
 
   async function openEdit(id: number) {
-    setEditingId(id);
     setModalOpen(true);
     setFormError(null);
     setDetailLoading(true);
     try {
       const module = await api.modules.detail(id);
+      setEditingId(id);
       setForm({
         name: module.name, code: module.code, parentId: module.parentId ? String(module.parentId) : "",
         sortOrder: String(module.sortOrder ?? 0), icon: module.icon ?? "", route: module.route, isActive: module.isActive,
@@ -111,7 +113,7 @@ export default function Modules() {
 
   async function confirmDelete(id: number) {
     try { await api.modules.remove(id); setDeleteConfirm(null); load(); }
-    catch { /* ignore */ }
+    catch (e: unknown) { setLoadError(e instanceof Error ? e.message : "Failed to delete module"); }
   }
 
   // ── Permission modal ──────────────────────────────────────────────
@@ -157,7 +159,7 @@ export default function Modules() {
       setRoutesLoading(r => ({ ...r, [moduleId]: true }));
       api.modules.routes.list(moduleId)
         .then(routes => setRoutesMap(m => ({ ...m, [moduleId]: routes })))
-        .catch(() => {})
+        .catch(() => setLoadError("Failed to load routes"))
         .finally(() => setRoutesLoading(r => ({ ...r, [moduleId]: false })));
     }
   }
@@ -172,10 +174,11 @@ export default function Modules() {
     if (!routeModal) return;
     setSaving(true); setFormError(null);
     try {
-      await api.modules.routes.create(routeModal.moduleId, routeForm);
+      const moduleId = routeModal.moduleId;
+      await api.modules.routes.create(moduleId, routeForm);
       setRouteModal(null);
-      const routes = await api.modules.routes.list(routeModal.moduleId);
-      setRoutesMap(m => ({ ...m, [routeModal.moduleId]: routes }));
+      const routes = await api.modules.routes.list(moduleId);
+      setRoutesMap(m => ({ ...m, [moduleId]: routes }));
     } catch (e: unknown) { setFormError(e instanceof Error ? e.message : "Failed to save route"); }
     finally { setSaving(false); }
   }
@@ -185,7 +188,7 @@ export default function Modules() {
       await api.modules.routes.remove(moduleId, routeId);
       const routes = await api.modules.routes.list(moduleId);
       setRoutesMap(m => ({ ...m, [moduleId]: routes }));
-    } catch { /* ignore */ }
+    } catch (e: unknown) { setLoadError(e instanceof Error ? e.message : "Failed to delete route"); }
   }
 
   async function testRoute(route: ModuleRouteItem) {
@@ -193,7 +196,7 @@ export default function Modules() {
     try {
       const session = getSession();
       if (!session?.token) throw new Error("No token");
-      const res = await fetch(route.routePattern, {
+      const res = await fetch(`/api${route.routePattern}`, {
         headers: { Authorization: `Bearer ${session.token}` }
       });
       setTestResults(p => ({ ...p, [route.id]: { status: res.status, loading: false } }));
@@ -226,6 +229,11 @@ export default function Modules() {
 
       {loading ? (
         <TableSkeleton rows={6} cols={7} />
+      ) : loadError ? (
+        <div className="bg-card border rounded-xl p-6 text-center">
+          <p className="text-sm text-red-500">{loadError}</p>
+          <button onClick={load} className="mt-2 text-xs text-primary hover:underline">Retry</button>
+        </div>
       ) : (
         <div className="bg-card border rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b flex items-center gap-3">
@@ -314,12 +322,12 @@ export default function Modules() {
                                       <td className="py-1.5 text-right whitespace-nowrap">
                                         {tr?.loading ? (
                                           <Loader2 className="w-3 h-3 animate-spin inline-block mr-2 text-muted-foreground" />
-                                        ) : tr?.status ? (
+                                        ) : tr?.status != null ? (
                                           <span
                                             className={`inline-flex items-center gap-1 mr-2 text-xs font-semibold ${tr.status === 200 ? 'text-emerald-600' : 'text-red-500'}`}
-                                            title={tr.status === 403 ? `Missing: ${route.requiredPermissionCode}` : undefined}
+                                            title={tr.status === 403 ? `Missing: ${route.requiredPermissionCode}` : tr.status === 0 ? "Network error" : undefined}
                                           >
-                                            {tr.status === 200 ? '✅' : '❌'} {tr.status}
+                                            {tr.status === 200 ? '✅' : '❌'} {tr.status === 0 ? 'Network error' : tr.status}
                                           </span>
                                         ) : null}
                                         <button onClick={() => testRoute(route)} className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors" title="Test this route"><Play className="w-3 h-3" /></button>

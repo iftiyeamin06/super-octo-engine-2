@@ -19,7 +19,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             return Unauthorized(new { message = "Authentication required." });
 
         var userPermissionIds = await db.UserRoles
-            .Where(ur => ur.AppUserId == userId && ur.IsActive)
+            .Where(ur => ur.AppUserId == userId && ur.IsActive && ur.Role != null)
             .SelectMany(ur => ur.Role!.RolePermissions)
             .Where(rp => rp.IsActive)
             .Select(rp => rp.PermissionId)
@@ -99,10 +99,10 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
                 u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
                 u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
                 u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.TenantId).FirstOrDefault(),
-                u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+                u.TenantUsers.Where(tu => tu.IsActive && tu.Tenant != null).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
                 u.DepartmentId, u.Department != null ? u.Department.Name : null,
                 u.DesignationId, u.Designation != null ? u.Designation.Name : null,
-                u.UserRoles.Where(ur => ur.IsActive).Select(ur => ur.Role.Name).ToList()))
+                u.UserRoles.Where(ur => ur.IsActive && ur.Role != null).Select(ur => ur.Role!.Name).ToList()))
             .ToListAsync();
 
         return new PagedResult<UserListDto> { Items = items, TotalCount = total, Page = page, PageSize = pageSize };
@@ -124,10 +124,10 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
             u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt,
             u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.TenantId).FirstOrDefault(),
-            u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+            u.TenantUsers.Where(tu => tu.IsActive && tu.Tenant != null).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
             u.DepartmentId, u.Department?.Name,
             u.DesignationId, u.Designation?.Name,
-            u.UserRoles.Where(ur => ur.IsActive).Select(ur => ur.Role.Name).ToList());
+            u.UserRoles.Where(ur => ur.IsActive && ur.Role != null).Select(ur => ur.Role!.Name).ToList());
     }
 
     [HttpPost]
@@ -147,6 +147,9 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         var normalizedUserName = dto.UserName.ToUpperInvariant();
         if (await db.AppUsers.AnyAsync(u => u.NormalizedUserName == normalizedUserName))
             return BadRequest(new { error = "A user with this username already exists." });
+
+        if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
+            return BadRequest(new { error = "Password must be at least 6 characters." });
 
         // ── Per-tenant serialization ─────────────────────────────────────
         // We wrap ID generation and the INSERT in the SAME transaction.
@@ -203,6 +206,9 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         user.DesignationId = dto.DesignationId; user.IsActive = dto.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
 
+        if (!string.IsNullOrWhiteSpace(dto.Password) && dto.Password.Length < 6)
+            return BadRequest(new { error = "Password must be at least 6 characters." });
+
         if (!string.IsNullOrWhiteSpace(dto.Password))
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
@@ -257,9 +263,14 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             await tx.CommitAsync();
         }
 
-        // Sync roles
-        db.UserRoles.RemoveRange(user.UserRoles);
-        foreach (var roleId in dto.RoleIds)
+        // Sync roles — soft-delete stale, add new
+        var desiredRoleIds = dto.RoleIds.ToHashSet();
+        foreach (var ur in user.UserRoles.Where(ur => ur.IsActive && !desiredRoleIds.Contains(ur.RoleId)).ToList())
+        {
+            ur.IsActive = false;
+            ur.UpdatedAt = DateTime.UtcNow;
+        }
+        foreach (var roleId in desiredRoleIds.Where(rid => !user.UserRoles.Any(ur => ur.RoleId == rid && ur.IsActive)))
             db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
 
         await db.SaveChangesAsync();
@@ -274,7 +285,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             .FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return NotFound();
 
-        db.UserRoles.RemoveRange(user.UserRoles);
+        db.UserRoles.RemoveRange(user.UserRoles.Where(ur => ur.IsActive));
         foreach (var roleId in dto.RoleIds)
             db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
 
@@ -305,7 +316,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         if (user is null) return NotFound();
 
-        db.UserPermissions.RemoveRange(user.UserPermissions);
+        db.UserPermissions.RemoveRange(user.UserPermissions.Where(up => up.IsActive));
 
         foreach (var pid in dto.PermissionIds)
             db.UserPermissions.Add(new UserPermission { AppUserId = id, PermissionId = pid });
@@ -337,7 +348,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         if (user is null) return NotFound();
 
-        db.UserModuleAccesses.RemoveRange(user.ModuleAccesses);
+        db.UserModuleAccesses.RemoveRange(user.ModuleAccesses.Where(uma => uma.IsActive));
 
         foreach (var mid in dto.ModuleIds)
             db.UserModuleAccesses.Add(new UserModuleAccess { AppUserId = id, ModuleId = mid });
@@ -369,7 +380,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         if (user is null) return NotFound();
 
-        db.UserApiRoutes.RemoveRange(user.UserApiRoutes);
+        db.UserApiRoutes.RemoveRange(user.UserApiRoutes.Where(ur => ur.IsActive));
 
         foreach (var rid in dto.RouteIds)
             db.UserApiRoutes.Add(new UserApiRoute { AppUserId = id, ApiServiceRouteId = rid });

@@ -80,6 +80,23 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         var token = BuildToken(user.Id, user.Email, roles, permissions);
         var expiry = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
 
+        var sessionId = Guid.NewGuid().ToString("N");
+        var userAgent = Request.Headers.UserAgent.ToString();
+        var session = new UserLoginSession
+        {
+            AppUserId = user.Id,
+            SessionId = sessionId,
+            IpAddress = ip,
+            UserAgent = userAgent,
+            DeviceId = "web-" + sessionId[..8],
+            LoginAtUtc = DateTime.UtcNow,
+            LastSeenAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = expiry,
+            IsActive = true
+        };
+        db.UserLoginSessions.Add(session);
+        await db.SaveChangesAsync();
+
         return Ok(new LoginResponse(
             token,
             expiry,
@@ -103,6 +120,17 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
                 CreatedAt = DateTime.UtcNow,
                 IsActive = true
             });
+
+            var activeSessions = await db.UserLoginSessions
+                .Where(s => s.AppUserId == userId && s.IsActive).ToListAsync();
+            foreach (var s in activeSessions)
+            {
+                s.IsActive = false;
+                s.EndedAtUtc = DateTime.UtcNow;
+                s.EndedReason = "Logout";
+                s.UpdatedAt = DateTime.UtcNow;
+            }
+
             await db.SaveChangesAsync();
         }
         return Ok(new { message = "Logged out." });

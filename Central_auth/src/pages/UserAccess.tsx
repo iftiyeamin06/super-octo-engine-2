@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ShieldCheck, Route, Blocks, Search, ChevronDown, ChevronRight, Loader2, Check } from "lucide-react";
 import Badge from "../components/Badge";
 import { cn } from "../lib/utils";
@@ -21,6 +21,7 @@ export default function UserAccess() {
   const [allRoles, setAllRoles] = useState<RoleListItem[]>([]);
   const [allRoutes, setAllRoutes] = useState<RouteListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // User selector
   const [users, setUsers] = useState<UserListItem[]>([]);
@@ -48,6 +49,12 @@ export default function UserAccess() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [pageSuccess, setPageSuccess] = useState(false);
   const [expandedModules, setExpandedModules] = useState<string[]>([]);
+  const timerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => { timerRefs.current.forEach(clearTimeout); };
+  }, []);
 
   // Load shared data
   useEffect(() => {
@@ -61,19 +68,30 @@ export default function UserAccess() {
       setAllRoles(roles);
       setUsers(userResult.items);
       setAllRoutes(routes);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch(() => setLoadError("Failed to load data")).finally(() => setLoading(false));
   }, []);
+
+  const selectUserGen = useRef(0);
 
   // ── Shared ───────────────────────────────────────────────────────────
   function selectUser(user: UserListItem) {
+    const gen = ++selectUserGen.current;
     setSelectedUser(user);
     setShowUserDropdown(false);
     setRoleError(null); setRoleSuccess(false);
     setModuleError(null); setModuleSuccess(false);
     setPageError(null); setPageSuccess(false);
     setUserRoleIds(allRoles.filter(r => user.roles.includes(r.name)).map(r => r.id));
-    api.users.moduleAccesses(user.id).then(setDirectModuleIds).catch(() => {});
-    api.users.routeAccesses(user.id).then(setDirectRouteIds).catch(() => {});
+    api.users.moduleAccesses(user.id).then(data => {
+      if (gen === selectUserGen.current) setDirectModuleIds(data);
+    }).catch(() => {
+      if (gen === selectUserGen.current) setModuleError("Failed to load module access");
+    });
+    api.users.routeAccesses(user.id).then(data => {
+      if (gen === selectUserGen.current) setDirectRouteIds(data);
+    }).catch(() => {
+      if (gen === selectUserGen.current) setPageError("Failed to load route access");
+    });
   }
 
   const filteredUsers = users.filter(u =>
@@ -95,7 +113,7 @@ export default function UserAccess() {
     try {
       await api.users.updateRoles(selectedUser.id, userRoleIds);
       setRoleSuccess(true);
-      setTimeout(() => setRoleSuccess(false), 3000);
+      timerRefs.current.push(setTimeout(() => setRoleSuccess(false), 3000));
     } catch (e: unknown) {
       setRoleError(e instanceof Error ? e.message : "Failed to save roles");
     } finally { setRoleSaving(false); }
@@ -113,7 +131,7 @@ export default function UserAccess() {
       await api.users.updateModuleAccesses(selectedUser.id, directModuleIds);
       clearAccessibleModulesCache();
       setModuleSuccess(true);
-      setTimeout(() => setModuleSuccess(false), 3000);
+      timerRefs.current.push(setTimeout(() => setModuleSuccess(false), 3000));
     } catch (e: unknown) {
       setModuleError(e instanceof Error ? e.message : "Failed to save module access");
     } finally { setModuleSaving(false); }
@@ -146,7 +164,7 @@ export default function UserAccess() {
       await api.users.updateRouteAccesses(selectedUser.id, directRouteIds);
       clearAccessibleModulesCache();
       setPageSuccess(true);
-      setTimeout(() => setPageSuccess(false), 3000);
+      timerRefs.current.push(setTimeout(() => setPageSuccess(false), 3000));
     } catch (e: unknown) {
       setPageError(e instanceof Error ? e.message : "Failed to save page access");
     } finally { setPageSaving(false); }
@@ -208,6 +226,11 @@ export default function UserAccess() {
 
       {selectedUser && !loading && (
         <>
+          {loadError && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-500">
+              {loadError}
+            </div>
+          )}
           {/* ── Section 1: Roles & Permissions ──────────────────────── */}
           <div className="bg-card border rounded-xl p-5 space-y-3">
             <div className="flex items-center gap-2">
@@ -221,7 +244,7 @@ export default function UserAccess() {
                   : <span className="text-xs text-muted-foreground">No roles assigned</span>}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{userRoleIds.length}/{allRoles.length} selected</span>
+                <span className="text-xs text-muted-foreground">{userRoleIds.length}/{allRoles.filter(r => r.isActive).length} selected</span>
                 {roleSuccess && <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3 h-3" /> Saved</span>}
                 <button onClick={saveUserRoles} disabled={roleSaving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
@@ -312,7 +335,7 @@ export default function UserAccess() {
                   className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{directRouteIds.length}/{allRoutes.length} selected</span>
+                <span className="text-xs text-muted-foreground">{directRouteIds.length}/{routesByModule.flatMap(x => x.routes).length} selected</span>
                 {pageSuccess && <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3 h-3" /> Saved</span>}
                 <button onClick={savePageAccesses} disabled={pageSaving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
@@ -329,10 +352,10 @@ export default function UserAccess() {
                 routes.some(r => r.routePattern.toLowerCase().includes(pageSearch.toLowerCase()))
               ).map(({ module: m, routes }) => {
                 const allSelected = routes.every(r => directRouteIds.includes(r.id));
-                const isExpanded = expandedModules.includes(m.name);
+                const isExpanded = expandedModules.includes(String(m.id));
                 return (
                   <div key={m.id}>
-                    <button onClick={() => setExpandedModules(p => p.includes(m.name) ? p.filter(x => x !== m.name) : [...p, m.name])}
+                    <button onClick={() => setExpandedModules(p => p.includes(String(m.id)) ? p.filter(x => x !== String(m.id)) : [...p, String(m.id)])}
                       className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/30 transition-colors">
                       <div className="flex items-center gap-2">
                         {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}

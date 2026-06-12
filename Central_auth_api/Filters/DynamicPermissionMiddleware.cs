@@ -68,6 +68,10 @@ public class DynamicPermissionMiddleware
                 return;
             }
         }
+        else if (uidClaim is not null)
+        {
+            // Non-numeric user ID (e.g. GUID) — cannot check direct grants, fall through to claim check
+        }
 
         var hasPermission = user.HasClaim(c =>
             c.Type == "permission" && c.Value == match.RequiredPermissionCode);
@@ -108,7 +112,8 @@ public class DynamicPermissionMiddleware
 
         _cache.Set(CacheKey, routes, new MemoryCacheEntryOptions
         {
-            SlidingExpiration = CacheSliding
+            SlidingExpiration = CacheSliding,
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30)
         });
 
         return routes;
@@ -116,6 +121,10 @@ public class DynamicPermissionMiddleware
 
     private static bool MatchPattern(string pattern, string path)
     {
+        // Strip query string before matching
+        var queryIndex = path.IndexOf('?');
+        if (queryIndex >= 0) path = path[..queryIndex];
+
         var patternSegs = pattern.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
         var pathSegs = path.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
 

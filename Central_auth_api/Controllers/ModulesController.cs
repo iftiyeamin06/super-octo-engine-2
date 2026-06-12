@@ -54,7 +54,7 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         };
         db.Modules.Add(module);
         await db.SaveChangesAsync();
-        return Ok();
+        return CreatedAtAction(nameof(GetById), new { id = module.Id }, new { module.Id });
     }
 
     [HttpPut("{id:long}")]
@@ -79,17 +79,18 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
     {
         var module = await db.Modules.FindAsync(id);
         if (module is null) return NotFound();
-        db.Modules.Remove(module);
+        module.IsActive = false;
+        module.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return Ok();
     }
 
     [HttpGet("accessible")]
-    public async Task<List<ModuleAccessibleDto>> GetAccessible()
+    public async Task<ActionResult<List<ModuleAccessibleDto>>> GetAccessible()
     {
         var uidClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (uidClaim is null || !long.TryParse(uidClaim, out var userId))
-            return [];
+            return Unauthorized(new { message = "Authentication required." });
 
         var rolePermIds = await db.UserRoles
             .Where(ur => ur.AppUserId == userId)
@@ -124,13 +125,13 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
 
         var allModuleIds = permModuleIds.Union(explicitModuleIds).Union(routeModuleIds).Distinct().ToList();
 
-        return await db.Modules
+        return Ok(await db.Modules
             .AsNoTracking()
             .Where(m => m.IsActive && allModuleIds.Contains(m.Id))
             .OrderBy(m => m.SortOrder)
             .ThenBy(m => m.Name)
             .Select(m => new ModuleAccessibleDto(m.Id, m.Name, m.Code, m.Route, m.Icon, m.SortOrder))
-            .ToListAsync();
+            .ToListAsync());
     }
 
     [HttpGet("{id:long}/permissions")]
@@ -153,12 +154,10 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         var module = await db.Modules.Include(m => m.ModulePermissions).FirstOrDefaultAsync(m => m.Id == id);
         if (module is null) return NotFound();
 
-        db.ModulePermissions.RemoveRange(module.ModulePermissions);
-        module.ModulePermissions = dto.PermissionIds.Select(pid => new ModulePermission
-        {
-            ModuleId = id,
-            PermissionId = pid
-        }).ToList();
+        db.ModulePermissions.RemoveRange(module.ModulePermissions.Where(mp => mp.IsActive));
+
+        foreach (var pid in dto.PermissionIds)
+            db.ModulePermissions.Add(new ModulePermission { ModuleId = id, PermissionId = pid });
 
         await db.SaveChangesAsync();
         return Ok();

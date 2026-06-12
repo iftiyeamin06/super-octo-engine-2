@@ -19,7 +19,8 @@ export function getSession(): AuthState | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const s: AuthState = JSON.parse(raw);
-    if (new Date(s.expiresAt) < new Date()) { clearSession(); return null; }
+    const expiresAt = new Date(s.expiresAt);
+    if (isNaN(expiresAt.getTime()) || expiresAt < new Date()) { clearSession(); return null; }
     return s;
   } catch { return null; }
 }
@@ -49,7 +50,7 @@ export function getPermissions(): string[] {
     const payload = session.token.split('.')[1];
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
     const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
-    const decoded = JSON.parse(atob(padded));
+    const decoded = JSON.parse(decodeURIComponent(escape(atob(padded))));
     const raw = decoded.permission;
     return Array.isArray(raw) ? raw : (raw ? [raw] : []);
   } catch { return []; }
