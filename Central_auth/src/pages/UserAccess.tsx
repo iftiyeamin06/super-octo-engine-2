@@ -199,16 +199,6 @@ export default function UserAccess() {
 
       {selectedUser && !loading && (
         <>
-          {/* ── Save All ────────────────────────────────────────────── */}
-          <div className="flex items-center gap-3">
-            <button onClick={saveAll} disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Save All
-            </button>
-            {saveSuccess && <span className="text-sm text-emerald-600 flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>}
-          </div>
-
           {loadError && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-500">
               {loadError}
@@ -357,6 +347,16 @@ export default function UserAccess() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* ── Save All ────────────────────────────────────────────── */}
+          <div className="flex items-center gap-3">
+            <button onClick={saveAll} disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 font-medium disabled:opacity-50">
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save All
+            </button>
+            {saveSuccess && <span className="text-sm text-emerald-600 flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>}
           </div>
         </>
       )}

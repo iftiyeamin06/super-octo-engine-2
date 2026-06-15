@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Boxes, ChevronDown, ChevronRight, Loader2, Pencil, Play, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import Badge from "../components/Badge";
+import { cn } from "../lib/utils";
 import { TableSkeleton } from "../components/Skeleton";
 import { api, type ModuleListItem, type ModuleSavePayload, type ModuleRouteItem, type Permission } from "../lib/api";
 import { getSession, clearAccessibleModulesCache } from "../lib/auth";
@@ -29,6 +30,7 @@ export default function Modules() {
   const [form, setForm] = useState({
     name: "", code: "", parentId: "", sortOrder: "0", icon: "", route: "", isActive: true,
   });
+  const [formTouched, setFormTouched] = useState({ name: false, code: false, route: false });
 
   // ── Routes state ──────────────────────────────────────────────────
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -36,6 +38,7 @@ export default function Modules() {
   const [routesLoading, setRoutesLoading] = useState<Record<number, boolean>>({});
   const [routeModal, setRouteModal] = useState<{ moduleId: number } | null>(null);
   const [routeForm, setRouteForm] = useState({ httpMethod: "GET", routePattern: "", requiredPermissionCode: "", description: "" });
+  const [routeFormTouched, setRouteFormTouched] = useState({ routePattern: false, requiredPermissionCode: false });
   const [permissionsList, setPermissionsList] = useState<Permission[]>([]);
   const [testResults, setTestResults] = useState<Record<number, { status: number | null; loading: boolean }>>({});
 
@@ -73,12 +76,14 @@ export default function Modules() {
     setEditingId(null);
     setFormError(null);
     setForm({ name: "", code: "", parentId: "", sortOrder: "0", icon: "", route: "", isActive: true });
+    setFormTouched({ name: false, code: false, route: false });
     setModalOpen(true);
   }
 
   async function openEdit(id: number) {
     setModalOpen(true);
     setFormError(null);
+    setFormTouched({ name: false, code: false, route: false });
     setDetailLoading(true);
     try {
       const module = await api.modules.detail(id);
@@ -166,6 +171,7 @@ export default function Modules() {
 
   function openAddRoute(moduleId: number) {
     setRouteForm({ httpMethod: "GET", routePattern: "", requiredPermissionCode: "", description: "" });
+    setRouteFormTouched({ routePattern: false, requiredPermissionCode: false });
     setFormError(null);
     setRouteModal({ moduleId });
   }
@@ -399,13 +405,32 @@ export default function Modules() {
                   {formError ?? "Loading module data..."}
                 </div>
               )}
-              {[{ label: "Name *", key: "name", placeholder: "Catalog" }, { label: "Code *", key: "code", placeholder: "CATALOG" }, { label: "Route *", key: "route", placeholder: "/Catalog" }, { label: "Icon", key: "icon", placeholder: "boxes" }].map(({ label, key, placeholder }) => (
-                <div key={key}>
-                  <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
-                  <input value={form[key as keyof typeof form] as string} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))} placeholder={placeholder}
-                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-                </div>
-              ))}
+              {[
+                { label: "Name *", key: "name" as const, placeholder: "Catalog", required: true },
+                { label: "Code *", key: "code" as const, placeholder: "CATALOG", required: true },
+                { label: "Route *", key: "route" as const, placeholder: "/Catalog", required: true },
+                { label: "Icon", key: "icon" as const, placeholder: "boxes", required: false },
+              ].map(({ label, key, placeholder, required }) => {
+                const value = form[key] as string;
+                const touched = key in formTouched ? (formTouched as Record<string, boolean>)[key] : false;
+                const isEmpty = required && touched && !value.trim();
+                return (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
+                    <input
+                      value={value}
+                      onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                      onBlur={() => { if (key in formTouched) setFormTouched(prev => ({ ...prev, [key]: true })); }}
+                      placeholder={placeholder}
+                      className={cn(
+                        "w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
+                        isEmpty && "border-red-500 focus:ring-red-500/30"
+                      )}
+                    />
+                    {isEmpty && <p className="text-xs text-red-500 mt-1">{label.replace(' *', '')} is required</p>}
+                  </div>
+                );
+              })}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-1">Parent Module</label>
@@ -514,13 +539,30 @@ export default function Modules() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1">Route Pattern *</label>
-                <input value={routeForm.routePattern} onChange={e => setRouteForm(f => ({ ...f, routePattern: e.target.value }))} placeholder="/api/inventory"
-                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                <input value={routeForm.routePattern} onChange={e => setRouteForm(f => ({ ...f, routePattern: e.target.value }))}
+                  onBlur={() => setRouteFormTouched(prev => ({ ...prev, routePattern: true }))}
+                  placeholder="/api/inventory"
+                  className={cn(
+                    "w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
+                    routeFormTouched.routePattern && !routeForm.routePattern.trim() && "border-red-500 focus:ring-red-500/30"
+                  )} />
+                {routeFormTouched.routePattern && !routeForm.routePattern.trim() && (
+                  <p className="text-xs text-red-500 mt-1">Route pattern is required</p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1">Required Permission Code *</label>
-                <input list="route-permission-codes" value={routeForm.requiredPermissionCode} onChange={e => setRouteForm(f => ({ ...f, requiredPermissionCode: e.target.value }))} placeholder="Inventory_FullAccess"
-                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                <input list="route-permission-codes" value={routeForm.requiredPermissionCode}
+                  onChange={e => setRouteForm(f => ({ ...f, requiredPermissionCode: e.target.value }))}
+                  onBlur={() => setRouteFormTouched(prev => ({ ...prev, requiredPermissionCode: true }))}
+                  placeholder="Inventory_FullAccess"
+                  className={cn(
+                    "w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
+                    routeFormTouched.requiredPermissionCode && !routeForm.requiredPermissionCode.trim() && "border-red-500 focus:ring-red-500/30"
+                  )} />
+                {routeFormTouched.requiredPermissionCode && !routeForm.requiredPermissionCode.trim() && (
+                  <p className="text-xs text-red-500 mt-1">Permission code is required</p>
+                )}
                 <datalist id="route-permission-codes">
                   {permissionsList.map(p => <option key={p.id} value={p.code}>{p.name}</option>)}
                 </datalist>
