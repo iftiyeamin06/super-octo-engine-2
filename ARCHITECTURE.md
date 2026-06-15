@@ -146,11 +146,12 @@ Central_auth/src/
 ├── components/
 │   ├── ProtectedRoute.tsx               # Auth guard — checks localStorage session + expiry
 │   ├── Layout.tsx                       # Sidebar + Header + Outlet
-│   ├── Sidebar.tsx                      # Nav links + dynamic Applications from GET /api/modules/accessible
-│   ├── Header.tsx                       # Path-based title + "My Permissions" JWT decoder
+│   ├── Sidebar.tsx                      # Hardcoded nav groups (Main/Org/Monitoring) + dynamic Applications from GET /api/modules/accessible
+│   ├── Header.tsx                       # Path-based title + "My Permissions" JWT decoder + search + bell icon
 │   ├── UserForm.tsx                     # Create/edit user form (no role multi-select)
 │   ├── userFormModel.ts                 # Form state helpers
 │   ├── Badge.tsx                        # Status/label chip
+│   ├── RoleBadge.tsx                    # Role display badge (used in UserAccess)
 │   ├── StatCard.tsx                     # Dashboard metric card
 │   └── Skeleton.tsx                     # Loading placeholders
 │
@@ -463,51 +464,61 @@ UserAccess.tsx (http://localhost:5173/user-access)
   │
   ├── User Selector: searchable dropdown of up to 100 users
   │
-  ├── Section 1: Role Assignment (PUT /api/users/{id}/roles)
-  │     ☑ Super Admin
-  │     ☐ Inventory Manager
-  │     ☐ HR Manager
-  │     ☑ Viewer
-  │     [Save Roles] → sends { roleIds: [1, 4] }
+  ├── Section 1: Role Assignment (read-only badges — no inline editing)
+  │     Super Admin | Inventory Manager | Viewer
+  │     (displayed as RoleBadge components — assignment not edited here)
   │
   ├── Section 2: Direct Module Access (PUT /api/users/{id}/modules)
   │     ☑ Cutting
   │     ☐ Fabrics Receiving
   │     ☐ Inventory
-  │     [Save Modules] → sends { moduleIds: [1] }
   │
-  └── Section 3: Direct Route Access (PUT /api/users/{id}/routes)
-       Cutting (expandable)
-         ├─ ☑ [GET] /api/cutting
-         └─ ☐ [POST] /api/cutting
-       Fabrics Receiving (expandable)
-         └─ ☐ [GET] /api/receipts
-       [Save Routes] → sends { routeIds: [2, 5] }
+  ├── Section 3: Direct Route Access (PUT /api/users/{id}/routes)
+  │     Cutting (expandable)
+  │       ├─ ☑ [GET] /api/cutting
+  │       └─ ☐ [POST] /api/cutting
+  │     Fabrics Receiving (expandable)
+  │       └─ ☐ [GET] /api/receipts
+  │
+  └── Save All button (bottom of page)
+        → fires saveAll(): Promise.allSettled([saveRoles(), saveModules(), saveRoutes()])
+        → per-section error/success display on partial failure
 ```
 
 **Key implementation details:**
 - `userRoleIds` is derived from `allRoles.filter(r => user.roles.includes(r.name))` — name-based matching
 - `directModuleIds` / `directRouteIds` are fetched from dedicated endpoints (`GET /api/users/{id}/modules`, `GET /api/users/{id}/routes`)
-- Each section has independent `saving`/`error`/`success` state + its own Save button
+- **Single "Save All" button** at bottom of page — no per-section save buttons
 - Module expansion uses `m.id` for unique keys (not `m.name`)
 - Routes by module: computed via `modules.map(m => ({ module: m, routes: allRoutes.filter(r => r.moduleId === m.id) }))`
+- No inner scroll containers — page scrolls naturally
+- `saveAll()` fires all three API calls in parallel via `Promise.allSettled`; partial failures show per-section errors
+- `clearSectionError(section)` clears error state on toggle; `clearAllErrors()` resets on user change
+- Roles are displayed as read-only badges — editing roles is not supported on this page
 
 ### 6c. Modules Page — Route Registration
 
 ```
 Modules.tsx (http://localhost:5173/Modules)
   │
-  ├── Tree table: parent modules with expandable children (parentId from DTO)
-  │   Name / Code / Route / Status / Actions
-  │     └── Children indented with "└─" prefix
+  ├── Data table: modules with columns [ID] [NAME] [ROUTE] [DESCRIPTION] [CREATED AT] [UPDATED AT] [STATUS] [ACTIONS]
+  │   Actions: view (→ /apps/:id), edit, delete icons
   │
-  ├── Each module row has:
-  │   [Manage Permissions 🔒] → modal: searchable permission checkboxes
-  │   [▶ Routes (N)] → expand to show route table
-  │     ├── Route rows: Method badge + Pattern + Permission + [Test] [Delete]
-  │     └── [+ Add Route] → modal: method, pattern, permission code (datalist), description
+  ├── "Create New Module" form at top:
+  │   Fields: Name* [required], Code* [required], Route* [required], Parent (optional), Status, Description
+  │   Inline validation: blur-triggered — red border + "X is required" message when field is empty after touch
+  │   States: formTouched tracks Name, Code, Route per field
   │
-  └── Search bar: filters by name or code (case-insensitive, real-time)
+  ├── Edit Module modal:
+  │   Same fields as create form
+  │   Inline validation: same formTouched pattern — triggered on blur
+  │
+  └── Each module row has:
+      [Manage Permissions 🔒] → modal: searchable permission checkboxes
+      [▶ Routes (N)] → expand to show route table
+        ├── Route rows: Method badge + Pattern + Permission + [Test] [Delete]
+        └── [+ Add Route] → modal: method, pattern, permission code (datalist), description
+          Inline validation: routeFormTouched tracks Route Pattern, Required Permission Code — blur-triggered
 ```
 
 **Route registration (POST /api/modules/{id}/routes):**
@@ -521,6 +532,14 @@ Modules.tsx (http://localhost:5173/Modules)
 - Creates row in `auth_api_service_routes`
 - Invalidates `IMemoryCache` key `"DynamicPermissionRoutes"` (5-min sliding)
 - Duplicate `(HttpMethod, RoutePattern)` returns 500 (DB unique index)
+
+**Inline validation pattern:**
+```typescript
+// formTouched: { name: false, code: false, route: false } — Create/Edit modal
+// routeFormTouched: { routePattern: false, requiredPermissionCode: false } — Add Route modal
+// onBlur handler: sets field touched → validation runs → red border + inline error message
+// Submit handler: sets all fields touched → full validation pass → blocks submit if errors
+```
 
 ---
 
@@ -818,7 +837,7 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 | `Central_auth_api/Filters/DynamicPermissionMiddleware.cs` | Global route-permission enforcement + direct grant bypass |
 | `Central_auth_api/Data/CentralAuthDbContext.cs` | DbContext with 25 DbSets and auto-audit |
 | `Central_auth/src/pages/Roles.tsx` | Module→route permission tree (modal + read-only) |
-| `Central_auth/src/pages/UserAccess.tsx` | 3-section access hub (roles, modules, routes) |
-| `Central_auth/src/pages/Modules.tsx` | Module CRUD, route management, permission binding |
+| `Central_auth/src/pages/UserAccess.tsx` | 3-section hub — unified Save All, no scroll containers, single Save button at bottom |
+| `Central_auth/src/pages/Modules.tsx` | Module CRUD, route management, inline form validation (formTouched states) |
 | `Central_auth/src/lib/api.ts` | All API endpoints, fetch wrapper with JWT + 401 redirect |
 | `Central_auth/src/lib/auth.ts` | Session management, JWT decode, permission extraction |
