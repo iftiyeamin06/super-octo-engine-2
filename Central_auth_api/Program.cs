@@ -41,7 +41,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorizationBuilder()
+    .SetDefaultPolicy(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build());
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -102,6 +105,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<DynamicPermissionMiddleware>();
 app.MapControllers();
-app.MapGet("/health", () => new { status = "ok", service = "CentralAuth.Api", timestamp = DateTime.UtcNow });
+app.MapGet("/health", () => new { status = "ok", service = "CentralAuth.Api", timestamp = DateTime.UtcNow }).AllowAnonymous();
 
 app.Run();

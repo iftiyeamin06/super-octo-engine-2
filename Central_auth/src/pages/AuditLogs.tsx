@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { ClipboardList, RefreshCw } from "lucide-react";
 import { api, type AuditEntry } from "../lib/api";
+import { formatDateTime } from "../lib/utils";
 
 const ACTION_COLORS: Record<string, string> = {
   Login: "bg-emerald-500/10 text-emerald-600",
@@ -27,24 +28,35 @@ export default function AuditLogs() {
   const [search, setSearch] = useState("");
   const [entity, setEntity] = useState("");
   const [action, setAction] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [debouncedEntity, setDebouncedEntity] = useState("");
+  const [debouncedAction, setDebouncedAction] = useState("");
   const PAGE_SIZE = 25;
+  const [error, setError] = useState<string | null>(null);
+  const loadGen = useRef(0);
 
   const load = useCallback(() => {
-    setLoading(true);
+    const gen = ++loadGen.current;
+    setLoading(true); setError(null);
     const params: Record<string, string> = {
       page: String(page),
       pageSize: String(PAGE_SIZE),
-      ...(search ? { search } : {}),
-      ...(entity ? { entity } : {}),
-      ...(action ? { action } : {}),
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(debouncedEntity ? { entity: debouncedEntity } : {}),
+      ...(debouncedAction ? { action: debouncedAction } : {}),
     };
     api.audit.list(params)
-      .then((r) => { setItems(r.items); setTotal(r.total); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [page, search, entity, action]);
+      .then((r) => { if (gen === loadGen.current) { setItems(r.items); setTotal(r.total); } })
+      .catch((e) => { if (gen === loadGen.current) { setItems([]); setTotal(0); setError(e instanceof Error ? e.message : "Failed to load audit logs"); } })
+      .finally(() => { if (gen === loadGen.current) setLoading(false); });
+  }, [page, debouncedSearch, debouncedEntity, debouncedAction]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); setDebouncedEntity(entity); setDebouncedAction(action); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search, entity, action]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -66,26 +78,29 @@ export default function AuditLogs() {
           type="text"
           placeholder="Search user or IP…"
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          onChange={(e) => setSearch(e.target.value)}
           className="w-48 px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
         <input
           type="text"
           placeholder="Entity (e.g. AppUser)…"
           value={entity}
-          onChange={(e) => { setEntity(e.target.value); setPage(1); }}
+          onChange={(e) => setEntity(e.target.value)}
           className="w-44 px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
         <input
           type="text"
           placeholder="Action (e.g. Login)…"
           value={action}
-          onChange={(e) => { setAction(e.target.value); setPage(1); }}
+          onChange={(e) => setAction(e.target.value)}
           className="w-40 px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
         <span className="text-xs text-muted-foreground ml-auto">{total} records</span>
       </div>
 
+      {error && (
+        <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{error}</div>
+      )}
       {loading ? (
         <div className="flex items-center justify-center h-48"><div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>
       ) : (
@@ -113,7 +128,7 @@ export default function AuditLogs() {
                   <td className="px-4 py-3"><code className="text-xs bg-muted px-1.5 py-0.5 rounded">{a.entityKey}</code></td>
                   <td className="px-4 py-3 text-muted-foreground">{a.userEmail ?? "System"}</td>
                   <td className="px-4 py-3"><code className="text-xs text-muted-foreground">{a.ipAddress ?? "—"}</code></td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(a.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

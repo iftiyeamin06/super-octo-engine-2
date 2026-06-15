@@ -3,6 +3,7 @@ import { Monitor, ShieldOff, LogOut, RefreshCw, Users, Activity, Globe } from "l
 import Badge from "../components/Badge";
 import StatCard from "../components/StatCard";
 import { api, type Session } from "../lib/api";
+import { formatDateTime } from "../lib/utils";
 
 export default function Sessions() {
   const [items, setItems] = useState<Session[]>([]);
@@ -13,6 +14,8 @@ export default function Sessions() {
   const [activeOnly, setActiveOnly] = useState(true);
   const [stats, setStats] = useState({ activeSessions: 0, totalSessions: 0, usersOnline: 0 });
   const [statsLoading, setStatsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<number | string | null>(null);
   const loadGen = useRef(0);
   const PAGE_SIZE = 20;
 
@@ -20,7 +23,7 @@ export default function Sessions() {
     setStatsLoading(true);
     api.sessions.stats()
       .then(setStats)
-      .catch(() => {})
+      .catch((e) => { setError(e instanceof Error ? e.message : "Failed to load stats"); })
       .finally(() => setStatsLoading(false));
   }, []);
 
@@ -35,7 +38,7 @@ export default function Sessions() {
     };
     api.sessions.list(params)
       .then((r) => { if (gen === loadGen.current) { setItems(r.items); setTotal(r.total); } })
-      .catch(() => {})
+      .catch((e) => { if (gen === loadGen.current) setError(e instanceof Error ? e.message : "Failed to load sessions"); })
       .finally(() => { if (gen === loadGen.current) setLoading(false); });
   }, [page, search, activeOnly]);
 
@@ -43,16 +46,30 @@ export default function Sessions() {
 
   async function revoke(id: number) {
     if (!confirm("Revoke this session?")) return;
-    await api.sessions.revoke(id, "Admin revoked").catch(() => {});
-    load();
-    loadStats();
+    setRevokingId(id);
+    try {
+      await api.sessions.revoke(id, "Admin revoked");
+      load();
+      loadStats();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to revoke session");
+    } finally {
+      setRevokingId(null);
+    }
   }
 
   async function revokeAll(userId: number) {
     if (!confirm("Revoke ALL sessions for this user?")) return;
-    await api.sessions.revokeAll(userId).catch(() => {});
-    load();
-    loadStats();
+    setRevokingId(`user-${userId}`);
+    try {
+      await api.sessions.revokeAll(userId);
+      load();
+      loadStats();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to revoke sessions");
+    } finally {
+      setRevokingId(null);
+    }
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -90,6 +107,9 @@ export default function Sessions() {
         <span className="text-xs text-muted-foreground">{total} sessions</span>
       </div>
 
+      {error && (
+        <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{error}</div>
+      )}
       {loading ? (
         <div className="flex items-center justify-center h-48"><div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>
       ) : (
@@ -126,17 +146,17 @@ export default function Sessions() {
                   <td className="px-4 py-3 text-muted-foreground text-xs max-w-[200px] truncate" title={s.userAgent}>
                     {s.userAgent || "No agent recorded"}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(s.loginAtUtc).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(s.lastSeenAtUtc).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(s.expiresAtUtc).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(s.loginAtUtc)}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(s.lastSeenAtUtc)}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(s.expiresAtUtc)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       {s.isActive && (
                         <>
-                          <button onClick={() => revoke(s.id)} title="Revoke session" className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors">
+                          <button onClick={() => revoke(s.id)} disabled={revokingId === s.id} title="Revoke session" className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50">
                             <ShieldOff className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => revokeAll(s.appUserId)} title="Revoke all user sessions" className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors">
+                          <button onClick={() => revokeAll(s.appUserId)} disabled={revokingId === `user-${s.appUserId}`} title="Revoke all user sessions" className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50">
                             <LogOut className="w-3.5 h-3.5" />
                           </button>
                         </>

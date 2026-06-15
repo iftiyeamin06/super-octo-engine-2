@@ -15,11 +15,13 @@ export default function Departments() {
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const load = () => {
-    setLoading(true);
+    setLoading(true); setError(null);
     api.departments.list(tenantFilter ? Number(tenantFilter) : undefined)
-      .then(setItems).catch(() => {}).finally(() => setLoading(false));
+      .then(setItems).catch((e) => setError(e instanceof Error ? e.message : "Failed to load departments")).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [tenantFilter]);
@@ -45,8 +47,15 @@ export default function Departments() {
 
   async function remove(id: number) {
     if (!confirm("Deactivate this department?")) return;
-    await api.departments.delete(id).catch(() => {});
-    load();
+    setDeletingId(id);
+    try {
+      await api.departments.delete(id);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete department");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -70,6 +79,9 @@ export default function Departments() {
         <span className="text-xs text-muted-foreground">{items.length} departments</span>
       </div>
 
+      {error && (
+        <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{error}</div>
+      )}
       {loading ? <TableSkeleton rows={5} cols={4} /> : (
         <div className="bg-card border rounded-xl overflow-hidden">
           <table className="w-full text-sm">
@@ -98,7 +110,7 @@ export default function Departments() {
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
                       <button onClick={() => openEdit(d)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => remove(d.id)} className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => remove(d.id)} disabled={deletingId === d.id} className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
                 </tr>

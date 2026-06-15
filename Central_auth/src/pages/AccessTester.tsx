@@ -18,21 +18,17 @@ export default function AccessTester() {
   const [testResults, setTestResults] = useState<Record<number, TestResult>>({});
 
   useEffect(() => {
+    let cancelled = false;
     async function load() {
       try {
         const mods = await api.modules.list();
-        const allRoutes: RouteWithModule[] = [];
-        for (const m of mods) {
-          const rs = await api.modules.routes.list(m.id);
-          for (const r of rs) {
-            allRoutes.push({ ...r, moduleName: m.name });
-          }
-        }
-        setRoutes(allRoutes);
+        const routeArrays = await Promise.all(mods.map(m => api.modules.routes.list(m.id).then(rs => rs.map(r => ({ ...r, moduleName: m.name })))));
+        if (!cancelled) setRoutes(routeArrays.flat());
       } catch { /* ignore */ }
-      finally { setLoading(false); }
+      finally { if (!cancelled) setLoading(false); }
     }
     load();
+    return () => { cancelled = true; };
   }, []);
 
   async function testRoute(route: RouteWithModule) {
@@ -40,7 +36,7 @@ export default function AccessTester() {
     try {
       const session = getSession();
       if (!session?.token) throw new Error("No token");
-      const res = await fetch(route.routePattern, {
+      const res = await fetch(`/api${route.routePattern}`, {
         headers: { Authorization: `Bearer ${session.token}` }
       });
       setTestResults(p => ({ ...p, [route.id]: { status: res.status, loading: false } }));
@@ -107,7 +103,7 @@ export default function AccessTester() {
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       {tr?.loading ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin inline-block text-muted-foreground" />
-                      ) : tr?.status ? (
+                      ) : tr?.status != null ? (
                         <span
                           className={`inline-flex items-center gap-1 text-xs font-semibold ${tr.status === 200 ? 'text-emerald-600' : 'text-red-500'}`}
                           title={tr.status === 403 ? `Missing: ${route.requiredPermissionCode}` : undefined}

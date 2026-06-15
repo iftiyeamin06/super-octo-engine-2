@@ -71,7 +71,7 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         module.IsActive = dto.IsActive;
         module.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
-        return Ok();
+        return NoContent();
     }
 
     [HttpDelete("{id:long}")]
@@ -82,7 +82,7 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         module.IsActive = false;
         module.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
-        return Ok();
+        return NoContent();
     }
 
     [HttpGet("accessible")]
@@ -160,7 +160,7 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
             db.ModulePermissions.Add(new ModulePermission { ModuleId = id, PermissionId = pid });
 
         await db.SaveChangesAsync();
-        return Ok();
+        return NoContent();
     }
 
     // ── Route CRUD ─────────────────────────────────────────────────────

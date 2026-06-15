@@ -5,7 +5,7 @@ import { cn } from "../lib/utils";
 import { api, type UserListItem, type RoleListItem, type ModuleListItem, type RouteListItem } from "../lib/api";
 import { clearAccessibleModulesCache } from "../lib/auth";
 
-const USER_PAGE_SIZE = 100;
+const USER_PAGE_SIZE = 1000;
 
 const METHOD_COLORS: Record<string, string> = {
   GET:    "bg-emerald-500/10 text-emerald-600 border-emerald-200",
@@ -26,6 +26,7 @@ export default function UserAccess() {
   const [userSearch, setUserSearch] = useState("");
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [userRoleIds, setUserRoleIds] = useState<number[]>([]);
   const [directModuleIds, setDirectModuleIds] = useState<number[]>([]);
@@ -41,6 +42,16 @@ export default function UserAccess() {
 
   useEffect(() => {
     return () => { timerRefs.current.forEach(clearTimeout); };
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowUserDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -152,7 +163,7 @@ export default function UserAccess() {
 
       {/* ── User Selector ─────────────────────────────────────── */}
       <div className="bg-card border rounded-xl p-4 space-y-3">
-        <div className="relative">
+        <div className="relative" ref={dropdownRef}>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input value={userSearch} onChange={(e) => { setUserSearch(e.target.value); setShowUserDropdown(true); }}
             onFocus={() => setShowUserDropdown(true)} placeholder="Search users…"

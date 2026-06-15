@@ -15,6 +15,8 @@ public class AuditController(CentralAuthDbContext db) : ControllerBase
         [FromQuery] DateTime? from, [FromQuery] DateTime? to,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
         var q = db.AuditHistories.Include(a => a.AppUser).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(entity)) q = q.Where(a => a.EntityName == entity);

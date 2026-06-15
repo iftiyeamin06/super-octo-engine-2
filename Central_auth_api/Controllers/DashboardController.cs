@@ -28,6 +28,7 @@ public class DashboardController(CentralAuthDbContext db) : ControllerBase
     [HttpGet("recent-users")]
     public async Task<List<RecentUserDto>> GetRecentUsers([FromQuery] int count = 10)
     {
+        count = Math.Clamp(count, 1, 100);
         return await db.AppUsers
             .AsNoTracking()
             .OrderByDescending(u => u.CreatedAt)
@@ -45,6 +46,7 @@ public class DashboardController(CentralAuthDbContext db) : ControllerBase
     [HttpGet("recent-audit")]
     public async Task<List<AuditActivityDto>> GetRecentAudit([FromQuery] int count = 20)
     {
+        count = Math.Clamp(count, 1, 100);
         return await db.AuditHistories
             .AsNoTracking()
             .OrderByDescending(a => a.CreatedAt)

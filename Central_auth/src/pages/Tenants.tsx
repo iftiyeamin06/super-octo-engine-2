@@ -13,9 +13,10 @@ export default function Tenants() {
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const load = () => {
-    setLoading(true);
+    setLoading(true); setError(null);
     api.tenants.list()
       .then(setTenants)
       .catch((e) => setError(e.message))
@@ -57,8 +58,15 @@ export default function Tenants() {
 
   async function deleteTenant(id: number) {
     if (!confirm("Deactivate this tenant?")) return;
-    await api.tenants.delete(id).catch(() => {});
-    load();
+    setDeletingId(id);
+    try {
+      await api.tenants.delete(id);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete tenant");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -109,7 +117,7 @@ export default function Tenants() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       <button onClick={() => openEdit(t)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => deleteTenant(t.id)} className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => deleteTenant(t.id)} disabled={deletingId === t.id} className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
                 </tr>

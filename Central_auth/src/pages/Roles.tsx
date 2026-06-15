@@ -141,7 +141,7 @@ export default function Roles() {
       setEditingRole(null);
       loadRoles();
       if (editingRole) {
-        api.roles.detail(editingRole.id).then(setSelected).catch(() => {});
+        api.roles.detail(editingRole.id).then(setSelected).catch(() => setSelected(null));
       }
     } catch (e: unknown) {
       setFormError(e instanceof Error ? e.message : (editingRole ? "Failed to update role" : "Failed to create role"));

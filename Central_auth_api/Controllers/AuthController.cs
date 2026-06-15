@@ -15,9 +15,13 @@ namespace CentralAuth.Api.Controllers;
 [Route("api/[controller]")]
 public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : ControllerBase
 {
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest req)
     {
+        if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+            return Unauthorized(new { message = "Invalid email or password." });
+
         var normalized = req.Email.ToUpperInvariant();
         var user = await db.AppUsers
             .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
@@ -26,39 +30,46 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
 
-        var audit = new AuditHistory
+        if (user is null)
         {
-            ActionType = "Login",
-            EntityName = "AppUser",
-            EntityKey = user?.Id.ToString() ?? "",
-            IpAddress = ip,
-            CreatedAt = DateTime.UtcNow,
-            IsActive = true
-        };
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "Login Failed", EntityName = "AppUser", EntityKey = "",
+                IpAddress = ip, CreatedAt = DateTime.UtcNow, IsActive = true
+            });
+            await db.SaveChangesAsync();
+            return Unauthorized(new { message = "Invalid email or password." });
+        }
 
-        if (user is null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
+        if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
         {
-            audit.ActionType = "Login Failed";
-            db.AuditHistories.Add(audit);
+            user.FailedLoginAttempts++;
+            if (user.FailedLoginAttempts >= 5)
+            {
+                user.IsLocked = true;
+                user.LockoutEnd = DateTime.UtcNow.AddMinutes(30);
+            }
+            user.UpdatedAt = DateTime.UtcNow;
+
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "Login Failed", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                AppUserId = user.Id, IpAddress = ip, CreatedAt = DateTime.UtcNow, IsActive = true
+            });
             await db.SaveChangesAsync();
             return Unauthorized(new { message = "Invalid email or password." });
         }
 
         if (user.IsLocked)
         {
-            audit.ActionType = "Login Failed";
-            audit.AppUserId = user.Id;
-            db.AuditHistories.Add(audit);
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "Login Failed", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                AppUserId = user.Id, IpAddress = ip, CreatedAt = DateTime.UtcNow, IsActive = true
+            });
             await db.SaveChangesAsync();
             return Unauthorized(new { message = "Account is locked. Contact your administrator." });
         }
-
-        audit.AppUserId = user.Id;
-        db.AuditHistories.Add(audit);
-
-        user.LastLoginAt = DateTime.UtcNow;
-        user.FailedLoginAttempts = 0;
-        await db.SaveChangesAsync();
 
         var roles = user.UserRoles.Where(ur => ur.Role is not null).Select(ur => ur.Role!.Name).ToList();
         var permissions = user.UserRoles
@@ -80,6 +91,10 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         var token = BuildToken(user.Id, user.Email, roles, permissions);
         var expiry = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
 
+        user.LastLoginAt = DateTime.UtcNow;
+        user.FailedLoginAttempts = 0;
+        user.UpdatedAt = DateTime.UtcNow;
+
         var sessionId = Guid.NewGuid().ToString("N");
         var userAgent = Request.Headers.UserAgent.ToString();
         var session = new UserLoginSession
@@ -95,6 +110,13 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             IsActive = true
         };
         db.UserLoginSessions.Add(session);
+
+        db.AuditHistories.Add(new AuditHistory
+        {
+            ActionType = "Login", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+            AppUserId = user.Id, IpAddress = ip, CreatedAt = DateTime.UtcNow, IsActive = true
+        });
+
         await db.SaveChangesAsync();
 
         return Ok(new LoginResponse(
@@ -104,6 +126,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         ));
     }
 
+    [Authorize]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
@@ -137,6 +160,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     }
 
 #if DEBUG
+    [AllowAnonymous]
     [HttpPost("set-password")]
     public async Task<IActionResult> SetPassword([FromBody] SetPasswordRequest req)
     {

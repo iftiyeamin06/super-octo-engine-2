@@ -158,7 +158,7 @@ Central_auth/src/
 └── lib/
     ├── api.ts                           # Fetch wrapper (JWT attach, 401 redirect), all endpoint methods
     ├── auth.ts                          # getSession, saveSession, clearSession, getToken, getPermissions
-    └── utils.ts                         # cn() — clsx + tailwind-merge
+    └── utils.ts                         # cn() — clsx + tailwind-merge, formatDateTime() — explicit en-US date formatting
 ```
 
 ---
@@ -339,15 +339,33 @@ api.auth.login()
   ▼                          AuthController.Login(req)
 Vite proxy ────────────────►  │
   (:5173 → :5089)             │
+                              ├─ [AllowAnonymous] (global auth bypass)
+                              │
+                              ├─ Null check: IsNullOrWhiteSpace(email) || IsNullOrWhiteSpace(password)?
+                              │    └─ YES → 401 "Invalid email or password."
+                              │
                               ├─ NormalizedEmail = ToUpperInvariant(email)
                               │
                               ├─ SELECT * FROM auth_appusers
                               │    WHERE NormalizedEmail=@e
                               │    AND IsActive=1            ──► auth_appusers
                               │
+                              ├─ user is null?
+                              │    └─ YES → audit "Login Failed" (no EntityKey)
+                              │            → SaveChanges → 401
+                              │
                               ├─ BCrypt.Verify(password, User.PasswordHash)
-                              │    ├─ FAIL → 401
+                              │    ├─ FAIL → FailedLoginAttempts++
+                              │    │         if (FailedLoginAttempts >= 5)
+                              │    │           IsLocked = true
+                              │    │           LockoutEnd = UtcNow + 30 min
+                              │    │         audit "Login Failed" (AppUserId set)
+                              │    │         SaveChanges → 401
                               │    └─ PASS → continue
+                              │
+                              ├─ IsLocked?
+                              │    └─ YES → audit "Login Failed"
+                              │            → SaveChanges → 401 "Account is locked."
                               │
                               ├─ Load roles & permissions:
                               │    User → UserRoles → Role
@@ -360,6 +378,11 @@ Vite proxy ────────────────►  │
                               │     .Where(rp => rp.IsActive)
                               │     .Select(rp => rp.Permission.Code)
                               │     .Distinct()
+                              │
+                              ├─ Load direct permissions:
+                              │    UserPermissions.Where(up => up.IsActive)
+                              │      .Select(up => up.Permission.Code)
+                              │    permissions.AddRange(directPerms)
                               │
                               ├─ BuildToken(userId, email, roles, permissions):
                               │    Claims:
@@ -382,6 +405,21 @@ Vite proxy ────────────────►  │
                               │  ║    ]                            ║
                               │  ║  }                               ║
                               │  ╚═══════════════════════════════════╝
+                              │
+                              ├─ Reset user state:
+                              │    FailedLoginAttempts = 0
+                              │    LastLoginAt = UtcNow
+                              │    UpdatedAt = UtcNow
+                              │
+                              ├─ Create UserLoginSession:
+                              │    SessionId = Guid.NewGuid()
+                              │    IpAddress, UserAgent, DeviceId = "web-" + sessionId[..8]
+                              │    LoginAtUtc, LastSeenAtUtc, ExpiresAtUtc
+                              │
+                              ├─ Audit record: ActionType = "Login"
+                              │
+                              ├─ Single SaveChangesAsync()
+                              │    (user state + session + audit in one round-trip)
                               │
                               ├─ Return { accessToken, expiresAt, user }
                               │
@@ -454,7 +492,7 @@ PUT /api/roles/{id} {
   name, description, isActive,
   permissionIds: selectedPerms
 }
-Backend: deletes all RolePermission rows, inserts new ones
+Backend: hard-deletes active RolePermission rows (RemoveRange), inserts new ones — wrapped in transaction
 ```
 
 ### 6b. User Access Page — 3-Section Hub
@@ -462,7 +500,7 @@ Backend: deletes all RolePermission rows, inserts new ones
 ```
 UserAccess.tsx (http://localhost:5173/user-access)
   │
-  ├── User Selector: searchable dropdown of up to 100 users
+  ├── User Selector: searchable dropdown of up to 1000 users (click-outside closes dropdown)
   │
   ├── Section 1: Role Assignment (read-only badges — no inline editing)
   │     Super Admin | Inventory Manager | Viewer
@@ -517,6 +555,7 @@ Modules.tsx (http://localhost:5173/Modules)
       [Manage Permissions 🔒] → modal: searchable permission checkboxes
       [▶ Routes (N)] → expand to show route table
         ├── Route rows: Method badge + Pattern + Permission + [Test] [Delete]
+        │   Test: fetches route.routePattern directly (no /api prefix — patterns stored with full path)
         └── [+ Add Route] → modal: method, pattern, permission code (datalist), description
           Inline validation: routeFormTouched tracks Route Pattern, Required Permission Code — blur-triggered
 ```
@@ -548,11 +587,18 @@ Modules.tsx (http://localhost:5173/Modules)
 ### Pipeline Order
 
 ```csharp
-// Program.cs
+// Program.cs — global auth: all endpoints require JWT by default
+builder.Services.AddAuthorization(options =>
+{
+    options.DefaultPolicy = new AuthorizationPolicyBuilder(JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser().Build();
+});
+
 app.UseAuthentication();                                // JWT → ClaimsPrincipal
-app.UseAuthorization();                                 // Policy auth
+app.UseAuthorization();                                 // Policy auth (default: RequireAuthenticatedUser)
 app.UseMiddleware<DynamicPermissionMiddleware>();        // Route-permission enforcement
 app.MapControllers();                                   // Controller routing
+// Public endpoints: [AllowAnonymous] on AuthController.Login, .AllowAnonymous() on /health
 ```
 
 ### DynamicPermissionMiddleware Flow
@@ -565,6 +611,7 @@ Authorization: Bearer eyJ...
 DynamicPermissionMiddleware.InvokeAsync()
   │
   ├── Bypass check: path starts with /swagger, /health, /api/auth?
+  │     (login uses [AllowAnonymous]; health uses .AllowAnonymous())
   │     ├── YES → await _next(context)
   │     └── NO  → continue
   │
@@ -778,7 +825,12 @@ Roles were removed from the Users page create/edit modal and moved to the User A
 - Users page is now purely for identity/profile data (name, email, department, designation)
 - This separation follows the principle of single responsibility
 
----
+### Why global authorization is enforced
+
+All API endpoints require a valid JWT by default via `RequireAuthenticatedUser` policy in `Program.cs`. Public endpoints (login, health) opt out with `[AllowAnonymous]`. This means:
+- No controller or action can accidentally be left unprotected
+- New endpoints inherit auth protection automatically
+- The middleware pipeline enforces authentication before any controller logic runs
 
 ## 11. Route Protection Matrix
 
@@ -800,7 +852,7 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 
 | Route | ProtectedRoute | Notes |
 |-------|---------------|-------|
-| `/login` | ❌ No | Public — unauthenticated users can reach it |
+| `/login` | ❌ No | Public — unauthenticated users can reach it; backend uses `[AllowAnonymous]` on global auth |
 | `/dashboard` | ✅ Yes | Requires valid session |
 | `/users` | ✅ Yes | Requires valid session |
 | `/roles` | ✅ Yes | Requires valid session |
@@ -841,3 +893,4 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 | `Central_auth/src/pages/Modules.tsx` | Module CRUD, route management, inline form validation (formTouched states) |
 | `Central_auth/src/lib/api.ts` | All API endpoints, fetch wrapper with JWT + 401 redirect |
 | `Central_auth/src/lib/auth.ts` | Session management, JWT decode, permission extraction |
+| `Central_auth/src/lib/utils.ts` | `cn()` utility, `formatDateTime()` — explicit en-US date formatting |

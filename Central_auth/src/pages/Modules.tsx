@@ -1,21 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Boxes, ChevronDown, ChevronRight, Loader2, Pencil, Play, Plus, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import Badge from "../components/Badge";
-import { cn } from "../lib/utils";
+import { cn, formatDateTime } from "../lib/utils";
 import { TableSkeleton } from "../components/Skeleton";
 import { api, type ModuleListItem, type ModuleSavePayload, type ModuleRouteItem, type Permission } from "../lib/api";
 import { getSession, clearAccessibleModulesCache } from "../lib/auth";
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-function formatDate(value?: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : dateFormatter.format(date);
-}
 
 export default function Modules() {
   const [items, setItems] = useState<ModuleListItem[]>([]);
@@ -26,7 +15,10 @@ export default function Modules() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [routeFormError, setRouteFormError] = useState<string | null>(null);
+  const [routeSaving, setRouteSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [form, setForm] = useState({
     name: "", code: "", parentId: "", sortOrder: "0", icon: "", route: "", isActive: true,
   });
@@ -41,6 +33,7 @@ export default function Modules() {
   const [routeFormTouched, setRouteFormTouched] = useState({ routePattern: false, requiredPermissionCode: false });
   const [permissionsList, setPermissionsList] = useState<Permission[]>([]);
   const [testResults, setTestResults] = useState<Record<number, { status: number | null; loading: boolean }>>({});
+  const [deletingRouteId, setDeletingRouteId] = useState<number | null>(null);
 
   const parentOptions = useMemo(
     () => items.filter((item) => item.id !== editingId),
@@ -117,8 +110,10 @@ export default function Modules() {
   }
 
   async function confirmDelete(id: number) {
+    setDeletingId(id);
     try { await api.modules.remove(id); setDeleteConfirm(null); load(); }
     catch (e: unknown) { setLoadError(e instanceof Error ? e.message : "Failed to delete module"); }
+    finally { setDeletingId(null); }
   }
 
   // ── Permission modal ──────────────────────────────────────────────
@@ -172,29 +167,31 @@ export default function Modules() {
   function openAddRoute(moduleId: number) {
     setRouteForm({ httpMethod: "GET", routePattern: "", requiredPermissionCode: "", description: "" });
     setRouteFormTouched({ routePattern: false, requiredPermissionCode: false });
-    setFormError(null);
+    setRouteFormError(null);
     setRouteModal({ moduleId });
   }
 
   async function saveRoute() {
     if (!routeModal) return;
-    setSaving(true); setFormError(null);
+    setRouteSaving(true); setRouteFormError(null);
     try {
       const moduleId = routeModal.moduleId;
       await api.modules.routes.create(moduleId, routeForm);
       setRouteModal(null);
       const routes = await api.modules.routes.list(moduleId);
       setRoutesMap(m => ({ ...m, [moduleId]: routes }));
-    } catch (e: unknown) { setFormError(e instanceof Error ? e.message : "Failed to save route"); }
-    finally { setSaving(false); }
+    } catch (e: unknown) { setRouteFormError(e instanceof Error ? e.message : "Failed to save route"); }
+    finally { setRouteSaving(false); }
   }
 
   async function deleteRoute(moduleId: number, routeId: number) {
+    setDeletingRouteId(routeId);
     try {
       await api.modules.routes.remove(moduleId, routeId);
       const routes = await api.modules.routes.list(moduleId);
       setRoutesMap(m => ({ ...m, [moduleId]: routes }));
     } catch (e: unknown) { setLoadError(e instanceof Error ? e.message : "Failed to delete route"); }
+    finally { setDeletingRouteId(null); }
   }
 
   async function testRoute(route: ModuleRouteItem) {
@@ -202,7 +199,7 @@ export default function Modules() {
     try {
       const session = getSession();
       if (!session?.token) throw new Error("No token");
-      const res = await fetch(`/api${route.routePattern}`, {
+      const res = await fetch(route.routePattern, {
         headers: { Authorization: `Bearer ${session.token}` }
       });
       setTestResults(p => ({ ...p, [route.id]: { status: res.status, loading: false } }));
@@ -279,13 +276,13 @@ export default function Modules() {
                     <td className="px-4 py-3 text-xs font-mono text-muted-foreground whitespace-nowrap">{parent.code}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{parent.route}</td>
                     <td className="px-4 py-3">{parent.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="outline">Inactive</Badge>}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDate(parent.createdAt)}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDate(parent.updatedAt)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(parent.createdAt)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(parent.updatedAt)}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       {deleteConfirm === parent.id ? (
                         <span className="inline-flex items-center gap-2">
                           <span className="text-xs text-muted-foreground">Delete?</span>
-                          <button onClick={() => confirmDelete(parent.id)} className="p-1 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors text-xs font-medium">Yes</button>
+                          <button onClick={() => confirmDelete(parent.id)} disabled={deletingId === parent.id} className="p-1 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors text-xs font-medium disabled:opacity-50">Yes</button>
                           <button onClick={() => setDeleteConfirm(null)} className="p-1 rounded bg-muted text-muted-foreground hover:text-foreground transition-colors text-xs">No</button>
                         </span>
                       ) : (
@@ -337,7 +334,7 @@ export default function Modules() {
                                           </span>
                                         ) : null}
                                         <button onClick={() => testRoute(route)} className="p-1 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors" title="Test this route"><Play className="w-3 h-3" /></button>
-                                        <button onClick={() => deleteRoute(parent.id, route.id)} className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors" title="Delete route"><Trash2 className="w-3 h-3" /></button>
+                                        <button onClick={() => deleteRoute(parent.id, route.id)} disabled={deletingRouteId === route.id} className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50" title="Delete route"><Trash2 className="w-3 h-3" /></button>
                                       </td>
                                     </tr>
                                     );
@@ -365,13 +362,13 @@ export default function Modules() {
                       <td className="px-4 py-3 text-xs font-mono text-muted-foreground whitespace-nowrap">{child.code}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{child.route}</td>
                       <td className="px-4 py-3">{child.isActive ? <Badge variant="success">Active</Badge> : <Badge variant="outline">Inactive</Badge>}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDate(child.createdAt)}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDate(child.updatedAt)}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(child.createdAt)}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(child.updatedAt)}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {deleteConfirm === child.id ? (
                           <span className="inline-flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">Delete?</span>
-                            <button onClick={() => confirmDelete(child.id)} className="p-1 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors text-xs font-medium">Yes</button>
+                            <button onClick={() => confirmDelete(child.id)} disabled={deletingId === child.id} className="p-1 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors text-xs font-medium disabled:opacity-50">Yes</button>
                             <button onClick={() => setDeleteConfirm(null)} className="p-1 rounded bg-muted text-muted-foreground hover:text-foreground transition-colors text-xs">No</button>
                           </span>
                         ) : (
@@ -529,7 +526,7 @@ export default function Modules() {
               <button onClick={() => setRouteModal(null)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-5 py-4 space-y-3">
-              {formError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{formError}</div>}
+              {routeFormError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{routeFormError}</div>}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1">HTTP Method *</label>
                 <select value={routeForm.httpMethod} onChange={e => setRouteForm(f => ({ ...f, httpMethod: e.target.value }))}
@@ -575,9 +572,9 @@ export default function Modules() {
             </div>
             <div className="flex items-center justify-end gap-3 px-5 py-4 border-t">
               <button onClick={() => setRouteModal(null)} className="px-4 py-2 rounded-lg border text-sm hover:bg-muted transition-colors">Cancel</button>
-              <button onClick={saveRoute} disabled={saving || !routeForm.httpMethod || !routeForm.routePattern || !routeForm.requiredPermissionCode}
+              <button onClick={saveRoute} disabled={routeSaving || !routeForm.httpMethod || !routeForm.routePattern || !routeForm.requiredPermissionCode}
                 className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
-                {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Add Route
+                {routeSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Add Route
               </button>
             </div>
           </div>

@@ -3,6 +3,7 @@ import { Users, ShieldCheck, Building2, Activity, AlertTriangle } from "lucide-r
 import StatCard from "../components/StatCard";
 import Badge from "../components/Badge";
 import { api, type DashboardStats, type RecentUser, type AuditActivity } from "../lib/api";
+import { formatDateTime } from "../lib/utils";
 
 // ── Skeleton helpers ───────────────────────────────────────────
 const SkeletonBox = ({ w = "w-full", h = "h-4" }: { w?: string; h?: string }) => (
@@ -89,10 +90,12 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     Promise.all([api.dashboard.stats(), api.dashboard.recentUsers(), api.dashboard.recentAudit()])
-      .then(([s, u, a]) => { setStats(s); setUsers(u); setAudit(a); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .then(([s, u, a]) => { if (!cancelled) { setStats(s); setUsers(u); setAudit(a); } })
+      .catch((e) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   // ── Skeleton state ───────────────────────────────────────────
@@ -170,7 +173,7 @@ export default function Dashboard() {
                     ? <Badge variant="success">Active</Badge>
                     : <Badge variant="outline">Inactive</Badge>}
                 <p className="text-xs text-muted-foreground w-24 text-right hidden md:block">
-                  {new Date(u.createdAt).toLocaleDateString()}
+                  {formatDateTime(u.createdAt)}
                 </p>
               </div>
             ))}
@@ -193,7 +196,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-foreground">{a.actionType}</p>
                   <p className="text-xs text-muted-foreground truncate">{a.entityName}</p>
                   <p className="text-xs text-muted-foreground">
-                    {a.userEmail ?? "System"} · {new Date(a.createdAt).toLocaleTimeString()}
+                    {a.userEmail ?? "System"} · {formatDateTime(a.createdAt)}
                   </p>
                 </div>
               </div>

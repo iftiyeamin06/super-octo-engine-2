@@ -20,15 +20,22 @@ export default function ModulePage() {
 
   useEffect(() => {
     if (!moduleId) return;
+    let cancelled = false;
     setLoading(true);
     const id = Number(moduleId);
+    if (Number.isNaN(id)) {
+      setError("Invalid module ID.");
+      setLoading(false);
+      return;
+    }
     Promise.all([
       api.modules.detail(id),
       api.modules.routes.list(id)
     ])
-      .then(([mod, rs]) => { setModule(mod); setRoutes(rs); })
-      .catch(() => setError("Module not found"))
-      .finally(() => setLoading(false));
+      .then(([mod, rs]) => { if (!cancelled) { setModule(mod); setRoutes(rs); } })
+      .catch(() => { if (!cancelled) setError("Module not found"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [moduleId]);
 
   async function testRoute(route: ModuleRouteItem) {
@@ -36,7 +43,7 @@ export default function ModulePage() {
     try {
       const session = getSession();
       if (!session?.token) throw new Error("No token");
-      const res = await fetch(route.routePattern, {
+      const res = await fetch(`/api${route.routePattern}`, {
         headers: { Authorization: `Bearer ${session.token}` }
       });
       setTestResults(p => ({ ...p, [route.id]: { status: res.status, loading: false } }));
@@ -130,7 +137,7 @@ export default function ModulePage() {
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       {tr?.loading ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin inline-block text-muted-foreground" />
-                      ) : tr?.status ? (
+                      ) : tr?.status != null ? (
                         <span
                           className={`inline-flex items-center gap-1 text-xs font-semibold ${tr.status === 200 ? 'text-emerald-600' : 'text-red-500'}`}
                           title={tr.status === 403 ? `Missing: ${route.requiredPermissionCode}` : undefined}

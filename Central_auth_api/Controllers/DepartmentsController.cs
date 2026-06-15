@@ -33,7 +33,8 @@ public class DepartmentsController(CentralAuthDbContext db) : ControllerBase
     {
         var dept = await db.Departments.FindAsync(id);
         if (dept is null) return NotFound();
-        dept.Name = dto.Name; dept.Description = dto.Description;
+        dept.Name = dto.Name; dept.Code = dto.Code?.ToUpperInvariant() ?? dept.Code;
+        dept.Description = dto.Description;
         dept.IsActive = dto.IsActive; dept.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return NoContent();

@@ -70,6 +70,8 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         [FromQuery] string? search, [FromQuery] string? status,
         [FromQuery] long? tenantId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
         var q = db.AppUsers
             .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
             .Include(u => u.Department)
@@ -136,18 +138,6 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         if (dto.TenantIds is null || dto.TenantIds.Count == 0)
             return BadRequest(new { error = "At least one TenantId is required for automatic EmployeeId generation." });
 
-        var invalidIds = dto.TenantIds.Where(tid => !db.Tenants.Any(t => t.Id == tid)).ToList();
-        if (invalidIds.Count != 0)
-            return BadRequest(new { error = $"The following tenant IDs do not exist: [{string.Join(", ", invalidIds)}]" });
-
-        var normalizedEmail = dto.Email.ToUpperInvariant();
-        if (await db.AppUsers.AnyAsync(u => u.NormalizedEmail == normalizedEmail))
-            return BadRequest(new { error = "A user with this email already exists." });
-
-        var normalizedUserName = dto.UserName.ToUpperInvariant();
-        if (await db.AppUsers.AnyAsync(u => u.NormalizedUserName == normalizedUserName))
-            return BadRequest(new { error = "A user with this username already exists." });
-
         if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
             return BadRequest(new { error = "Password must be at least 6 characters." });
 
@@ -158,6 +148,27 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         // generator call until we commit. This makes the
         // (read-max → compute-next → insert) sequence atomic per tenant.
         await using var tx = await db.Database.BeginTransactionAsync();
+
+        var normalizedEmail = dto.Email.ToUpperInvariant();
+        if (await db.AppUsers.AnyAsync(u => u.NormalizedEmail == normalizedEmail))
+        {
+            await tx.RollbackAsync();
+            return BadRequest(new { error = "A user with this email already exists." });
+        }
+
+        var normalizedUserName = dto.UserName.ToUpperInvariant();
+        if (await db.AppUsers.AnyAsync(u => u.NormalizedUserName == normalizedUserName))
+        {
+            await tx.RollbackAsync();
+            return BadRequest(new { error = "A user with this username already exists." });
+        }
+
+        var invalidTenantIds = dto.TenantIds.Where(tid => !db.Tenants.Any(t => t.Id == tid)).ToList();
+        if (invalidTenantIds.Count != 0)
+        {
+            await tx.RollbackAsync();
+            return BadRequest(new { error = $"The following tenant IDs do not exist: [{string.Join(", ", invalidTenantIds)}]" });
+        }
 
         var user = new AppUser
         {
@@ -183,7 +194,7 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             });
         }
 
-        foreach (var roleId in dto.RoleIds)
+        foreach (var roleId in dto.RoleIds ?? new List<long>())
             db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
 
         await db.SaveChangesAsync();
@@ -212,68 +223,63 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         if (!string.IsNullOrWhiteSpace(dto.Password))
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
-        // ── Replace tenant links with the desired set ───────────────────
-        // Semantics: dto.TenantIds is the COMPLETE desired set of tenants
-        // this user should belong to. Anything not in the array is
-        // soft-deleted (IsActive=false, audit trail preserved); anything
-        // new is created with a fresh per-tenant EmployeeId; anything
-        // already present (active or soft-deleted) is preserved or
-        // re-activated, so the (AppUserId, TenantId) unique index is
-        // never violated.
+        // ── Replace tenant + role links in a single transaction ─────────
         if (dto.TenantIds is not null)
         {
             var invalidIds = dto.TenantIds.Where(tid => !db.Tenants.Any(t => t.Id == tid)).ToList();
             if (invalidIds.Count != 0)
                 return BadRequest(new { error = $"The following tenant IDs do not exist: [{string.Join(", ", invalidIds)}]" });
+        }
 
-            await using var tx = await db.Database.BeginTransactionAsync();
-
-            var desired = dto.TenantIds.ToHashSet();
-
-            foreach (var stale in user.TenantUsers.Where(tu => tu.IsActive && !desired.Contains(tu.TenantId)).ToList())
+        await using (var tx = await db.Database.BeginTransactionAsync())
+        {
+            if (dto.TenantIds is not null)
             {
-                stale.IsActive = false;
-                stale.UpdatedAt = DateTime.UtcNow;
-            }
+                var desired = dto.TenantIds.ToHashSet();
 
-            foreach (var tenantId in desired)
-            {
-                var existing = user.TenantUsers.FirstOrDefault(tu => tu.TenantId == tenantId);
-                if (existing is not null)
+                foreach (var stale in user.TenantUsers.Where(tu => tu.IsActive && !desired.Contains(tu.TenantId)).ToList())
                 {
-                    if (!existing.IsActive)
+                    stale.IsActive = false;
+                    stale.UpdatedAt = DateTime.UtcNow;
+                }
+
+                foreach (var tenantId in desired)
+                {
+                    var existing = user.TenantUsers.FirstOrDefault(tu => tu.TenantId == tenantId);
+                    if (existing is not null)
                     {
-                        existing.IsActive = true;
-                        existing.UpdatedAt = DateTime.UtcNow;
+                        if (!existing.IsActive)
+                        {
+                            existing.IsActive = true;
+                            existing.UpdatedAt = DateTime.UtcNow;
+                        }
+                    }
+                    else
+                    {
+                        var newEmployeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId, user.DepartmentId);
+                        user.TenantUsers.Add(new TenantUser
+                        {
+                            AppUserId  = user.Id,
+                            TenantId   = tenantId,
+                            EmployeeId = newEmployeeId
+                        });
                     }
                 }
-                else
-                {
-                    var newEmployeeId = await employeeIdGenerator.GenerateNextEmployeeIdAsync(tenantId, user.DepartmentId);
-                    user.TenantUsers.Add(new TenantUser
-                    {
-                        AppUserId  = user.Id,
-                        TenantId   = tenantId,
-                        EmployeeId = newEmployeeId
-                    });
-                }
             }
+
+            // Sync roles — soft-delete stale, add new
+            var desiredRoleIds = (dto.RoleIds ?? new List<long>()).ToHashSet();
+            foreach (var ur in user.UserRoles.Where(ur => ur.IsActive && !desiredRoleIds.Contains(ur.RoleId)).ToList())
+            {
+                ur.IsActive = false;
+                ur.UpdatedAt = DateTime.UtcNow;
+            }
+            foreach (var roleId in desiredRoleIds.Where(rid => !user.UserRoles.Any(ur => ur.RoleId == rid && ur.IsActive)))
+                db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
 
             await db.SaveChangesAsync();
             await tx.CommitAsync();
         }
-
-        // Sync roles — soft-delete stale, add new
-        var desiredRoleIds = dto.RoleIds.ToHashSet();
-        foreach (var ur in user.UserRoles.Where(ur => ur.IsActive && !desiredRoleIds.Contains(ur.RoleId)).ToList())
-        {
-            ur.IsActive = false;
-            ur.UpdatedAt = DateTime.UtcNow;
-        }
-        foreach (var roleId in desiredRoleIds.Where(rid => !user.UserRoles.Any(ur => ur.RoleId == rid && ur.IsActive)))
-            db.UserRoles.Add(new UserRole { AppUserId = user.Id, RoleId = roleId });
-
-        await db.SaveChangesAsync();
         return NoContent();
     }
 
@@ -316,7 +322,11 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         if (user is null) return NotFound();
 
-        db.UserPermissions.RemoveRange(user.UserPermissions.Where(up => up.IsActive));
+        foreach (var up in user.UserPermissions.Where(up => up.IsActive))
+        {
+            up.IsActive = false;
+            up.UpdatedAt = DateTime.UtcNow;
+        }
 
         foreach (var pid in dto.PermissionIds)
             db.UserPermissions.Add(new UserPermission { AppUserId = id, PermissionId = pid });
@@ -348,7 +358,11 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         if (user is null) return NotFound();
 
-        db.UserModuleAccesses.RemoveRange(user.ModuleAccesses.Where(uma => uma.IsActive));
+        foreach (var uma in user.ModuleAccesses.Where(uma => uma.IsActive))
+        {
+            uma.IsActive = false;
+            uma.UpdatedAt = DateTime.UtcNow;
+        }
 
         foreach (var mid in dto.ModuleIds)
             db.UserModuleAccesses.Add(new UserModuleAccess { AppUserId = id, ModuleId = mid });
@@ -380,7 +394,11 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
 
         if (user is null) return NotFound();
 
-        db.UserApiRoutes.RemoveRange(user.UserApiRoutes.Where(ur => ur.IsActive));
+        foreach (var ur in user.UserApiRoutes.Where(ur => ur.IsActive))
+        {
+            ur.IsActive = false;
+            ur.UpdatedAt = DateTime.UtcNow;
+        }
 
         foreach (var rid in dto.RouteIds)
             db.UserApiRoutes.Add(new UserApiRoute { AppUserId = id, ApiServiceRouteId = rid });

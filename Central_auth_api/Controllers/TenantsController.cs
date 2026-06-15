@@ -35,6 +35,9 @@ public class TenantsController(CentralAuthDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] TenantCreateDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.Name) || string.IsNullOrWhiteSpace(dto.Code))
+            return BadRequest(new { error = "Name and Code are required." });
+
         var tenant = new Tenant
         {
             Name = dto.Name, Code = dto.Code.ToUpperInvariant(), Description = dto.Description,
@@ -49,6 +52,9 @@ public class TenantsController(CentralAuthDbContext db) : ControllerBase
     [HttpPut("{id:long}")]
     public async Task<ActionResult> Update(long id, [FromBody] TenantUpdateDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.Name) || string.IsNullOrWhiteSpace(dto.Code))
+            return BadRequest(new { error = "Name and Code are required." });
+
         var tenant = await db.Tenants.FindAsync(id);
         if (tenant is null) return NotFound();
         tenant.Name = dto.Name; tenant.Code = dto.Code.ToUpperInvariant(); tenant.Description = dto.Description;

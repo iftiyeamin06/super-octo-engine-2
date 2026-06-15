@@ -86,7 +86,9 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
         role.Name = dto.Name; role.Description = dto.Description;
         role.IsActive = dto.IsActive; role.UpdatedAt = DateTime.UtcNow;
 
-        db.RolePermissions.RemoveRange(role.RolePermissions);
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        db.RolePermissions.RemoveRange(role.RolePermissions.Where(rp => rp.IsActive));
 
         if (dto.PermissionIds is { Count: > 0 })
         {
@@ -100,6 +102,7 @@ public class RolesController(CentralAuthDbContext db) : ControllerBase
         }
 
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
         return NoContent();
     }
 

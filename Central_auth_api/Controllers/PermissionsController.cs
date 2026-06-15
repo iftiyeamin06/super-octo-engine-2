@@ -28,10 +28,13 @@ public class PermissionsController(CentralAuthDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] CreatePermissionDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.Code) || string.IsNullOrWhiteSpace(dto.Name))
+            return BadRequest(new { error = "Code and Name are required." });
+
         var perm = new Permission { Code = dto.Code, Name = dto.Name, Description = dto.Description, GroupName = dto.GroupName };
         db.Permissions.Add(perm);
         await db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetAll), new { id = perm.Id }, new { perm.Id });
+        return CreatedAtAction(nameof(GetAll), new { perm.Id });
     }
 
     [HttpPut("{id:long}")]

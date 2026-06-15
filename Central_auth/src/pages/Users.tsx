@@ -4,7 +4,7 @@ import Badge from "../components/Badge";
 import { TableSkeleton } from "../components/Skeleton";
 import UserForm from "../components/UserForm";
 import { type UserFormValues } from "../components/userFormModel";
-import { cn } from "../lib/utils";
+import { cn, formatDateTime } from "../lib/utils";
 import { api, type UserListItem, type TenantListItem, type RoleListItem, type DepartmentItem, type DesignationItem } from "../lib/api";
 import { getSession, clearAccessibleModulesCache } from "../lib/auth";
 
@@ -49,7 +49,7 @@ export default function Users() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    Promise.all([api.tenants.list(), api.roles.list(), api.departments.list(), api.designations.list()]).then(([t, r, d, dg]) => { setTenants(t); setRoles(r); setDepartments(d); setDesignations(dg); }).catch(() => {});
+    Promise.all([api.tenants.list(), api.roles.list(), api.departments.list(), api.designations.list()]).then(([t, r, d, dg]) => { setTenants(t); setRoles(r); setDepartments(d); setDesignations(dg); }).catch((e) => { setError(e instanceof Error ? e.message : "Failed to load form data"); });
   }, []);
 
   function openCreate() {
@@ -70,11 +70,13 @@ export default function Users() {
   }
 
   async function save(values: UserFormValues) {
-    setSaving(true); setFormError(null);
+    setSaving(true); setFormError(null); setError(null);
     try {
       if (editingUser) {
+        const freshRoles = await api.roles.list();
+        setRoles(freshRoles);
         const tenantIds: number[] | null = values.tenantId ? [Number(values.tenantId)] : null;
-        const roleIds = roles.filter(r => editingUser.roles.includes(r.name)).map(r => r.id);
+        const roleIds = freshRoles.filter(r => editingUser.roles.includes(r.name)).map(r => r.id);
         const payload: Parameters<typeof api.users.update>[1] = {
           firstName: values.firstName,
           lastName: values.lastName,
@@ -113,10 +115,19 @@ export default function Users() {
     } finally { setSaving(false); }
   }
 
+  const [lockingUserId, setLockingUserId] = useState<number | null>(null);
+
   async function toggleLock(u: UserListItem) {
-    if (u.isLocked) await api.users.unlock(u.id).catch(() => {});
-    else await api.users.lock(u.id).catch(() => {});
-    load();
+    setLockingUserId(u.id);
+    try {
+      if (u.isLocked) await api.users.unlock(u.id);
+      else await api.users.lock(u.id);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update lock status");
+    } finally {
+      setLockingUserId(null);
+    }
   }
 
   function confirmDelete(user: UserListItem) {
@@ -234,7 +245,7 @@ export default function Users() {
                       </span>
                     </td>
                     <td className="px-4 py-3">{statusBadge(u)}</td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{new Date(u.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{formatDateTime(u.createdAt)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => openEdit(u)}
@@ -243,8 +254,9 @@ export default function Users() {
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => toggleLock(u)}
+                          disabled={lockingUserId === u.id}
                           title={u.isLocked ? "Unlock" : "Lock"}
-                          className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                          className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
                           {u.isLocked ? <UserCheck className="w-3.5 h-3.5 text-emerald-500" /> : <UserX className="w-3.5 h-3.5 text-orange-500" />}
                         </button>
                         <button onClick={() => confirmDelete(u)}

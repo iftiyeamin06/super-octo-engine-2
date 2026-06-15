@@ -14,7 +14,9 @@ public class SessionsController(CentralAuthDbContext db) : ControllerBase
         var now = DateTime.UtcNow;
         var activeSessions = await db.UserLoginSessions.CountAsync(s => s.IsActive && s.ExpiresAtUtc > now);
         var totalSessions = await db.UserLoginSessions.CountAsync();
-        var usersOnline = await db.UserLoginSessions.CountAsync(s => s.IsActive && s.ExpiresAtUtc > now);
+        var usersOnline = await db.UserLoginSessions
+            .Where(s => s.IsActive && s.ExpiresAtUtc > now)
+            .Select(s => s.AppUserId).Distinct().CountAsync();
         return Ok(new { activeSessions, totalSessions, usersOnline });
     }
 
@@ -24,6 +26,8 @@ public class SessionsController(CentralAuthDbContext db) : ControllerBase
         [FromQuery] string? search,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
         var q = db.UserLoginSessions.Include(s => s.AppUser).AsQueryable();
         if (userId.HasValue) q = q.Where(s => s.AppUserId == userId);
         if (activeOnly.HasValue && activeOnly.Value) q = q.Where(s => s.IsActive && s.ExpiresAtUtc > DateTime.UtcNow);
