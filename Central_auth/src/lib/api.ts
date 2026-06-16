@@ -57,6 +57,7 @@ export const api = {
     lock:   (id: number)             => req(`/users/${id}/lock`, { method: "PATCH" }),
     unlock: (id: number)             => req(`/users/${id}/unlock`, { method: "PATCH" }),
     delete: (id: number)             => req(`/users/${id}`, { method: "DELETE" }),
+    detail: (id: number)             => req<UserListItem>(`/users/${id}`),
     permissions: (id: number)        => req<number[]>(`/users/${id}/permissions`),
     updatePermissions: (id: number, permissionIds: number[]) =>
       req<void>(`/users/${id}/permissions`, { method: "PUT", body: JSON.stringify({ permissionIds }) }),
