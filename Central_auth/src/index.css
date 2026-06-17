@@ -27,6 +27,29 @@
     --radius: 0.5rem;
   }
 
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 220 13% 91%;
+    --card: 224 71% 6%;
+    --card-foreground: 220 13% 91%;
+    --border: 220 13% 15%;
+    --input: 220 13% 15%;
+    --ring: 262 83% 58%;
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 15%;
+    --secondary-foreground: 220 13% 91%;
+    --muted: 220 13% 15%;
+    --muted-foreground: 220 9% 56%;
+    --accent: 220 13% 15%;
+    --accent-foreground: 220 13% 91%;
+    --destructive: 0 63% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --sidebar: 224 71% 4%;
+    --sidebar-foreground: 220 13% 91%;
+    --sidebar-border: 220 13% 15%;
+  }
+
   * { @apply border-border; }
   body { @apply bg-background text-foreground; font-family: 'Inter', system-ui, sans-serif; }
 }

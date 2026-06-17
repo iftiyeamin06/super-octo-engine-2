@@ -8,11 +8,11 @@ import { clearAccessibleModulesCache } from "../lib/auth";
 const USER_PAGE_SIZE = 1000;
 
 const METHOD_COLORS: Record<string, string> = {
-  GET:    "bg-emerald-500/10 text-emerald-600 border-emerald-200",
-  POST:   "bg-blue-500/10 text-blue-600 border-blue-200",
-  PUT:    "bg-orange-500/10 text-orange-600 border-orange-200",
-  PATCH:  "bg-yellow-500/10 text-yellow-600 border-yellow-200",
-  DELETE: "bg-red-500/10 text-red-600 border-red-200",
+  GET:    "bg-emerald-500/10 text-emerald-600 border-emerald-200 dark:text-emerald-400 dark:border-emerald-800",
+  POST:   "bg-blue-500/10 text-blue-600 border-blue-200 dark:text-blue-400 dark:border-blue-800",
+  PUT:    "bg-orange-500/10 text-orange-600 border-orange-200 dark:text-orange-400 dark:border-orange-800",
+  PATCH:  "bg-yellow-500/10 text-yellow-600 border-yellow-200 dark:text-yellow-400 dark:border-yellow-800",
+  DELETE: "bg-red-500/10 text-red-600 border-red-200 dark:text-red-400 dark:border-red-800",
 };
 
 export default function UserAccess() {
@@ -234,7 +234,7 @@ export default function UserAccess() {
       {selectedUser && !loading && (
         <>
           {Object.keys(loadErrors).length > 0 && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-500">
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-500 dark:text-red-400 dark:border-red-800 dark:bg-red-950/20">
               {Object.values(loadErrors).join(". ")}
             </div>
           )}
@@ -253,7 +253,7 @@ export default function UserAccess() {
               </div>
               <span className="text-xs text-muted-foreground">{userRoleIds.length}/{allRoles.filter(r => r.isActive).length} selected</span>
             </div>
-            {saveErrors.roles && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{saveErrors.roles}</div>}
+            {saveErrors.roles && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2 dark:text-red-400 dark:border-red-800 dark:bg-red-950/20">{saveErrors.roles}</div>}
 
             <div className="divide-y rounded-lg border">
               {loadingUser ? (
@@ -294,7 +294,7 @@ export default function UserAccess() {
               </div>
               <span className="text-xs text-muted-foreground">{directModuleIds.length}/{modules.length} selected</span>
             </div>
-            {saveErrors.modules && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{saveErrors.modules}</div>}
+            {saveErrors.modules && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2 dark:text-red-400 dark:border-red-800 dark:bg-red-950/20">{saveErrors.modules}</div>}
 
             <div className="divide-y rounded-lg border">
               {loadingUser ? (
@@ -334,7 +334,7 @@ export default function UserAccess() {
               </div>
               <span className="text-xs text-muted-foreground">{directRouteIds.length}/{routesByModule.flatMap(x => x.routes).length} selected</span>
             </div>
-            {saveErrors.routes && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{saveErrors.routes}</div>}
+            {saveErrors.routes && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2 dark:text-red-400 dark:border-red-800 dark:bg-red-950/20">{saveErrors.routes}</div>}
 
             <div className="divide-y rounded-lg border">
               {loadingUser ? (

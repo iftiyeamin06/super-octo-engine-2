@@ -5,7 +5,7 @@ import { TableSkeleton } from "../components/Skeleton";
 import UserForm from "../components/UserForm";
 import { type UserFormValues } from "../components/userFormModel";
 import { cn, formatDateTime } from "../lib/utils";
-import { api, type UserListItem, type TenantListItem, type RoleListItem, type DepartmentItem, type DesignationItem } from "../lib/api";
+import { api, type UserListItem, type TenantListItem, type DepartmentItem, type DesignationItem } from "../lib/api";
 import { getSession, clearAccessibleModulesCache } from "../lib/auth";
 
 export default function Users() {
@@ -26,7 +26,6 @@ export default function Users() {
   const [deleting, setDeleting] = useState(false);
 
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
-  const [roles, setRoles] = useState<RoleListItem[]>([]);
   const [departments, setDepartments] = useState<DepartmentItem[]>([]);
   const [designations, setDesignations] = useState<DesignationItem[]>([]);
 
@@ -49,7 +48,7 @@ export default function Users() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    Promise.all([api.tenants.list(), api.roles.list(), api.departments.list(), api.designations.list()]).then(([t, r, d, dg]) => { setTenants(t); setRoles(r); setDepartments(d); setDesignations(dg); }).catch((e) => { setError(e instanceof Error ? e.message : "Failed to load form data"); });
+    Promise.all([api.tenants.list(), api.departments.list(), api.designations.list()]).then(([t, d, dg]) => { setTenants(t); setDepartments(d); setDesignations(dg); }).catch((e) => { setError(e instanceof Error ? e.message : "Failed to load form data"); });
   }, []);
 
   function openCreate() {
@@ -72,9 +71,8 @@ export default function Users() {
   async function save(values: UserFormValues) {
     setSaving(true); setFormError(null); setError(null);
     try {
+      const freshRoles = await api.roles.list();
       if (editingUser) {
-        const freshRoles = await api.roles.list();
-        setRoles(freshRoles);
         const tenantIds: number[] | null = values.tenantId ? [Number(values.tenantId)] : null;
         const roleIds = freshRoles.filter(r => editingUser.roles.includes(r.name)).map(r => r.id);
         const payload: Parameters<typeof api.users.update>[1] = {
@@ -93,6 +91,7 @@ export default function Users() {
         await api.users.update(editingUser.id, payload);
       } else {
         const tenantIds: number[] = values.tenantId ? [Number(values.tenantId)] : [];
+        const roleIds = freshRoles.filter(r => values.roleIds.includes(r.id)).map(r => r.id);
         await api.users.create({
           firstName: values.firstName, lastName: values.lastName,
           email: values.email, userName: values.userName, password: values.password,
@@ -100,7 +99,7 @@ export default function Users() {
           tenantIds,
           departmentId: values.departmentId ? Number(values.departmentId) : null,
           designationId: values.designationId ? Number(values.designationId) : null,
-          roleIds: [],
+          roleIds,
         });
       }
       clearAccessibleModulesCache();
@@ -286,7 +285,7 @@ export default function Users() {
       {/* User Modal */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-card border rounded-xl w-full max-w-lg shadow-xl my-4">
+          <div className="bg-card border rounded-xl w-full max-w-4xl shadow-xl my-4">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="text-sm font-semibold">{editingUser ? "Edit User" : "Create User"}</h2>
               <button onClick={closeModal} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>

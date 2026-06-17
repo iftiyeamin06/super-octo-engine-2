@@ -13,18 +13,17 @@ export default function Sessions() {
   const [search, setSearch] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
   const [stats, setStats] = useState({ activeSessions: 0, totalSessions: 0, usersOnline: 0 });
-  const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<number | string | null>(null);
   const loadGen = useRef(0);
   const PAGE_SIZE = 20;
 
   const loadStats = useCallback(() => {
-    setStatsLoading(true);
+    setLoading(true);
     api.sessions.stats()
       .then(setStats)
       .catch((e) => { setError(e instanceof Error ? e.message : "Failed to load stats"); })
-      .finally(() => setStatsLoading(false));
+      .finally(() => setLoading(false));
   }, []);
 
   const load = useCallback(() => {

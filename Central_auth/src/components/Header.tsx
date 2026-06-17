@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Bell, Search, ShieldCheck } from "lucide-react";
+import { Moon, Sun, Bell, Search, ShieldCheck } from "lucide-react";
 import { getSession, getPermissions } from "../lib/auth";
+import { useTheme } from "../lib/theme";
 
 const titles: Record<string, { title: string; description: string }> = {
   "/dashboard": { title: "Dashboard", description: "Overview of your auth system" },
@@ -15,6 +16,7 @@ export default function Header() {
   const [showPerms, setShowPerms] = useState(false);
   const permissions = getPermissions();
   const session = getSession();
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <header className="relative flex items-center justify-between px-6 py-4 border-b bg-card">
@@ -30,6 +32,17 @@ export default function Header() {
             className="pl-9 pr-4 py-2 text-sm rounded-lg border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary w-56"
           />
         </div>
+        <button
+          onClick={() => toggleTheme()}
+          className="relative p-2 rounded-lg hover:bg-muted transition-colors group"
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+        >
+          {theme === "dark" ? (
+            <Sun className="w-5 h-5 text-muted-foreground" />
+          ) : (
+            <Moon className="w-5 h-5 text-muted-foreground" />
+          )}
+        </button>
         <button
           onClick={() => setShowPerms(!showPerms)}
           className="relative p-2 rounded-lg hover:bg-muted transition-colors group"

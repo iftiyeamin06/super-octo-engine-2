@@ -391,7 +391,7 @@ export default function Modules() {
       {/* ── Create/Edit modal ──────────────────────────────────────────── */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-card border rounded-xl w-full max-w-lg shadow-xl my-4">
+          <div className="bg-card border rounded-xl w-full max-w-4xl shadow-xl my-4">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="text-sm font-semibold">{editingId ? "Edit Module" : "Create Module"}</h2>
               <button onClick={closeModal} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
@@ -477,7 +477,7 @@ export default function Modules() {
             </div>
             {permError && (
               <div className="px-4 pt-3">
-                <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{permError}</div>
+                <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2 dark:text-red-400 dark:border-red-900/40 dark:bg-red-950/20">{permError}</div>
               </div>
             )}
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
@@ -526,7 +526,7 @@ export default function Modules() {
               <button onClick={() => setRouteModal(null)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-5 py-4 space-y-3">
-              {routeFormError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{routeFormError}</div>}
+              {routeFormError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2 dark:text-red-400 dark:border-red-900/40 dark:bg-red-950/20">{routeFormError}</div>}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1">HTTP Method *</label>
                 <select value={routeForm.httpMethod} onChange={e => setRouteForm(f => ({ ...f, httpMethod: e.target.value }))}

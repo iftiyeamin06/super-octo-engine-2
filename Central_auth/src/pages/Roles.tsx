@@ -8,25 +8,25 @@ import { clearAccessibleModulesCache } from "../lib/auth";
 
 const COLORS = ["purple", "blue", "green", "orange", "red", "teal"];
 const colorMap: Record<string, string> = {
-  purple: "bg-purple-500/10 text-purple-600 border-purple-200",
-  blue:   "bg-blue-500/10 text-blue-600 border-blue-200",
-  green:  "bg-emerald-500/10 text-emerald-600 border-emerald-200",
-  orange: "bg-orange-500/10 text-orange-600 border-orange-200",
-  red:    "bg-red-500/10 text-red-600 border-red-200",
-  teal:   "bg-teal-500/10 text-teal-600 border-teal-200",
+  purple: "bg-purple-500/10 text-purple-600 border-purple-200 dark:text-purple-400",
+  blue:   "bg-blue-500/10 text-blue-600 border-blue-200 dark:text-blue-400",
+  green:  "bg-emerald-500/10 text-emerald-600 border-emerald-200 dark:text-emerald-400",
+  orange: "bg-orange-500/10 text-orange-600 border-orange-200 dark:text-orange-400",
+  red:    "bg-red-500/10 text-red-600 border-red-200 dark:text-red-400",
+  teal:   "bg-teal-500/10 text-teal-600 border-teal-200 dark:text-teal-400",
 };
 const iconColor: Record<string, string> = {
-  purple: "text-purple-500", blue: "text-blue-500", green: "text-emerald-500",
-  orange: "text-orange-500", red: "text-red-500", teal: "text-teal-500",
+  purple: "text-purple-500 dark:text-purple-400", blue: "text-blue-500 dark:text-blue-400", green: "text-emerald-500 dark:text-emerald-400",
+  orange: "text-orange-500 dark:text-orange-400", red: "text-red-500 dark:text-red-400", teal: "text-teal-500 dark:text-teal-400",
 };
 function pickColor(idx: number) { return COLORS[idx % COLORS.length]; }
 
 const METHOD_COLORS: Record<string, string> = {
-  GET:    "bg-emerald-500/10 text-emerald-600 border-emerald-200",
-  POST:   "bg-blue-500/10 text-blue-600 border-blue-200",
-  PUT:    "bg-orange-500/10 text-orange-600 border-orange-200",
-  PATCH:  "bg-yellow-500/10 text-yellow-600 border-yellow-200",
-  DELETE: "bg-red-500/10 text-red-600 border-red-200",
+  GET:    "bg-emerald-500/10 text-emerald-600 border-emerald-200 dark:text-emerald-400",
+  POST:   "bg-blue-500/10 text-blue-600 border-blue-200 dark:text-blue-400",
+  PUT:    "bg-orange-500/10 text-orange-600 border-orange-200 dark:text-orange-400",
+  PATCH:  "bg-yellow-500/10 text-yellow-600 border-yellow-200 dark:text-yellow-400",
+  DELETE: "bg-red-500/10 text-red-600 border-red-200 dark:text-red-400",
 };
 
 const emptyForm = { name: "", description: "", isActive: true };
@@ -369,7 +369,7 @@ export default function Roles() {
       {/* Create / Edit Role Modal */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-card border rounded-xl w-full max-w-lg shadow-xl my-4">
+          <div className="bg-card border rounded-xl w-full max-w-4xl shadow-xl my-4">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="text-sm font-semibold">{editingRole ? "Edit Role" : "Create Role"}</h2>
               <button onClick={() => setModal(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>

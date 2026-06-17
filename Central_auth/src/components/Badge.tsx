@@ -8,9 +8,9 @@ interface BadgeProps {
 
 const variants = {
   default: "bg-primary/10 text-primary",
-  success: "bg-emerald-500/10 text-emerald-600",
-  warning: "bg-orange-500/10 text-orange-600",
-  danger:  "bg-red-500/10 text-red-600",
+  success: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  warning: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  danger:  "bg-red-500/10 text-red-600 dark:text-red-400",
   outline: "border border-border text-muted-foreground",
 };
 
