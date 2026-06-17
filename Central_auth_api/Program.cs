@@ -2,6 +2,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.Filters;
+using CentralAuth.Api.Middleware;
 using CentralAuth.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -131,6 +132,7 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
+app.UseMiddleware<SessionActivityMiddleware>();
 app.UseMiddleware<DynamicPermissionMiddleware>();
 app.MapControllers();
 app.MapGet("/health", () => new { status = "ok", service = "CentralAuth.Api", timestamp = DateTime.UtcNow }).AllowAnonymous();

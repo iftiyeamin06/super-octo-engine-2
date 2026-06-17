@@ -43,6 +43,8 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] ModuleSaveDto dto)
     {
+        await using var tx = await db.Database.BeginTransactionAsync();
+
         var module = new Module
         {
             Name = dto.Name,
@@ -56,13 +58,11 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         db.Modules.Add(module);
         await db.SaveChangesAsync();
 
-        try
-        {
-            var created = await GenerateDefaultPermissions(module);
-            if (created > 0)
-                return CreatedAtAction(nameof(GetById), new { id = module.Id }, new { module.Id, permissionsGenerated = created });
-        }
-        catch { /* permission generation failure should not block module creation */ }
+        var created = await GenerateDefaultPermissions(module);
+        await tx.CommitAsync();
+
+        if (created > 0)
+            return CreatedAtAction(nameof(GetById), new { id = module.Id }, new { module.Id, permissionsGenerated = created });
 
         return CreatedAtAction(nameof(GetById), new { id = module.Id }, new { module.Id });
     }
