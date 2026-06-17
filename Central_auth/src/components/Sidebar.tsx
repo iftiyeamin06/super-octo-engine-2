@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, ShieldCheck, Building2, Monitor, ClipboardList, LogOut, KeyRound, Building, Briefcase, Boxes, AppWindow, BugPlay, Shield } from "lucide-react";
+import { LayoutDashboard, Users, ShieldCheck, Building2, Monitor, ClipboardList, KeyRound, Building, Briefcase, Boxes, AppWindow, BugPlay, Shield } from "lucide-react";
 import { cn } from "../lib/utils";
-import { getSession, clearSession } from "../lib/auth";
 import { api, type ModuleAccessible } from "../lib/api";
 
 const navGroups = [
@@ -39,7 +38,6 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 min
 
 export default function Sidebar() {
   const navigate = useNavigate();
-  const session = getSession();
   const [accessible, setAccessible] = useState<ModuleAccessible[]>(() => {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
@@ -56,11 +54,6 @@ export default function Sidebar() {
       localStorage.setItem(CACHE_KEY, JSON.stringify({ modules: mods, fetchedAt: Date.now() }));
     }).catch(() => {});
   }, []);
-
-  function logout() {
-    clearSession();
-    navigate("/login", { replace: true });
-  }
 
   return (
     <aside className="w-64 flex flex-col bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))] border-r border-[hsl(var(--sidebar-border))]">
@@ -120,22 +113,6 @@ export default function Sidebar() {
           </div>
         )}
       </nav>
-
-      {/* User Footer */}
-      <div className="px-3 py-4 border-t border-[hsl(var(--sidebar-border))]">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
-          <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs text-primary font-semibold flex-shrink-0">
-            {session?.user.fullName?.charAt(0) ?? "A"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-white truncate">{session?.user.fullName ?? "Admin"}</p>
-            <p className="text-xs text-slate-500 truncate">{session?.user.email ?? ""}</p>
-          </div>
-          <button onClick={logout} title="Sign out" className="text-slate-500 hover:text-red-400 transition-colors">
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
     </aside>
   );
 }

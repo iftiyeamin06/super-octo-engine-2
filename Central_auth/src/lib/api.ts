@@ -19,13 +19,15 @@ function handleUnauthorized() {
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getSessionToken();
-  const { headers: extraHeaders, ...rest } = options ?? {};
+  const { headers: extraHeaders, body, ...rest } = options ?? {};
+  const isFormData = body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(extraHeaders as Record<string, string> | undefined),
     },
+    body,
     ...rest,
   });
   if (res.status === 401) {
@@ -42,7 +44,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   auth: {
     login: (data: { email: string; password: string }) =>
-      req<{ accessToken: string; expiresAt: string; user: { id: number; fullName: string; email: string; tenantName?: string; roles: string[] } }>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
+      req<{ accessToken: string; expiresAt: string; user: { id: number; fullName: string; email: string; tenantName?: string; roles: string[]; profilePhotoStorageKey?: string | null } }>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
   },
   dashboard: {
     stats:      () => req<DashboardStats>("/dashboard/stats"),
@@ -69,6 +71,12 @@ export const api = {
     routeAccesses: (id: number) => req<number[]>(`/users/${id}/routes`),
     updateRouteAccesses: (id: number, routeIds: number[]) =>
       req<void>(`/users/${id}/routes`, { method: "PUT", body: JSON.stringify({ routeIds }) }),
+    uploadPhoto: (id: number, file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return req<{ profilePhotoStorageKey: string }>(`/users/${id}/photo`, { method: "POST", body: formData });
+    },
+    deletePhoto: (id: number) => req<void>(`/users/${id}/photo`, { method: "DELETE" }),
   },
   roles: {
     list:   (tenantId?: number)      => req<RoleListItem[]>(`/roles${tenantId ? `?tenantId=${tenantId}` : ""}`),
@@ -145,7 +153,7 @@ export interface DashboardStats {
 export interface RecentUser { id: number; fullName: string; email: string; role?: string; tenant?: string; isActive: boolean; isLocked: boolean; createdAt: string; }
 export interface AuditActivity { id: number; actionType: string; entityName: string; userEmail?: string; ipAddress?: string; createdAt: string; }
 export interface PagedResult<T> { items: T[]; totalCount: number; page: number; pageSize: number; totalPages: number; }
-export interface UserListItem { id: number; firstName: string; lastName: string; email: string; userName: string; employeeId?: string | null; phoneNumber?: string | null; isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean; failedLoginAttempts: number; lastLoginAt?: string; createdAt: string; tenantId?: number; tenantName?: string; departmentId?: number; departmentName?: string; designationId?: number; designationName?: string; roles: string[]; }
+export interface UserListItem { id: number; firstName: string; lastName: string; email: string; userName: string; employeeId?: string | null; phoneNumber?: string | null; profilePhotoStorageKey?: string | null; isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean; failedLoginAttempts: number; lastLoginAt?: string; createdAt: string; tenantId?: number; tenantName?: string; departmentId?: number; departmentName?: string; designationId?: number; designationName?: string; roles: string[]; }
 export interface UserUpdatePayload { firstName: string; lastName: string; email?: string; userName?: string; phoneNumber?: string | null; tenantIds?: number[] | null; departmentId?: number | null; designationId?: number | null; isActive: boolean; roleIds: number[]; newPassword?: string; }
 export interface UserCreatePayload { firstName: string; lastName: string; email: string; userName: string; password: string; phoneNumber?: string | null; tenantIds: number[]; departmentId?: number | null; designationId?: number | null; roleIds: number[]; }
 export interface RoleListItem { id: number; name: string; description?: string; isActive: boolean; isSystem: boolean; tenantId?: number; tenantName?: string; userCount: number; permissionCount: number; createdAt: string; }

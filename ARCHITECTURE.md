@@ -572,6 +572,18 @@ Modules.tsx (http://localhost:5173/Modules)
 - Invalidates `IMemoryCache` key `"DynamicPermissionRoutes"` (5-min sliding)
 - Duplicate `(HttpMethod, RoutePattern)` returns 500 (DB unique index)
 
+**Auto-generated permissions on module create:**
+- When a module is created via `POST /api/modules`, 7 default permissions are auto-generated:
+  ```
+  {Code}_View, {Code}_Create, {Code}_Update, {Code}_Delete, {Code}_Export, {Code}_Import, {Code}_Print
+  ```
+  Example: Module `INV` → `INV_View`, `INV_Create`, `INV_Update`, `INV_Delete`, `INV_Export`, `INV_Import`, `INV_Print`
+- Permissions are automatically linked to the module via `ModulePermission` junction records
+- Permission codes are unique across the system (`auth_permissions.Code` has unique index)
+- Idempotent: skips permissions that already exist (safe to call multiple times)
+- Failure to generate permissions does NOT block module creation (try/catch)
+- Seed endpoint: `POST /api/modules/seed-permissions` — retroactively creates permissions for all existing modules that lack them
+
 **Inline validation pattern:**
 ```typescript
 // formTouched: { name: false, code: false, route: false } — Create/Edit modal
@@ -885,7 +897,7 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 |------|---------|
 | `Central_auth_api/Controllers/UsersController.cs` | User CRUD, role/module/route assignment endpoints |
 | `Central_auth_api/Controllers/RolesController.cs` | Role CRUD with permission sync |
-| `Central_auth_api/Controllers/ModulesController.cs` | Module CRUD, accessible endpoint, nested route CRUD |
+| `Central_auth_api/Controllers/ModulesController.cs` | Module CRUD, accessible endpoint, nested route CRUD, auto-generate 7 default permissions on create |
 | `Central_auth_api/Filters/DynamicPermissionMiddleware.cs` | Global route-permission enforcement + direct grant bypass |
 | `Central_auth_api/Data/CentralAuthDbContext.cs` | DbContext with 25 DbSets and auto-audit |
 | `Central_auth/src/pages/Roles.tsx` | Module→route permission tree (modal + read-only) |

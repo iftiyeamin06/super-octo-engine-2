@@ -17,6 +17,7 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
     public async Task<List<ModuleListItemDto>> GetAll() =>
         await db.Modules
             .AsNoTracking()
+            .Where(m => m.IsActive)
             .OrderBy(m => m.SortOrder)
             .ThenBy(m => m.Name)
             .Select(m => new ModuleListItemDto(m.Id, m.Name, m.Code, m.Route, m.ParentId, m.IsActive, m.CreatedAt, m.UpdatedAt))
@@ -54,6 +55,15 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         };
         db.Modules.Add(module);
         await db.SaveChangesAsync();
+
+        try
+        {
+            var created = await GenerateDefaultPermissions(module);
+            if (created > 0)
+                return CreatedAtAction(nameof(GetById), new { id = module.Id }, new { module.Id, permissionsGenerated = created });
+        }
+        catch { /* permission generation failure should not block module creation */ }
+
         return CreatedAtAction(nameof(GetById), new { id = module.Id }, new { module.Id });
     }
 
@@ -237,6 +247,70 @@ public class ModulesController(CentralAuthDbContext db, IMemoryCache cache) : Co
         await db.SaveChangesAsync();
         InvalidateCache();
         return NoContent();
+    }
+
+    [HttpPost("seed-permissions")]
+    public async Task<IActionResult> SeedPermissions()
+    {
+        var modules = await db.Modules.Where(m => m.IsActive).ToListAsync();
+        var totalCreated = 0;
+
+        foreach (var module in modules)
+        {
+            var created = await GenerateDefaultPermissions(module);
+            totalCreated += created;
+        }
+
+        return Ok(new { modulesProcessed = modules.Count, permissionsCreated = totalCreated });
+    }
+
+    private async Task<int> GenerateDefaultPermissions(Module module)
+    {
+        var actions = new[] { "View", "Create", "Update", "Delete", "Export", "Import", "Print" };
+        var existingCodes = await db.Permissions
+            .Where(p => actions.Any(a => p.Code == $"{module.Code}_{a}"))
+            .Select(p => p.Code)
+            .ToListAsync();
+
+        var existingModulePermCodes = await db.ModulePermissions
+            .Where(mp => mp.ModuleId == module.Id)
+            .Join(db.Permissions, mp => mp.PermissionId, p => p.Id, (mp, p) => p.Code)
+            .ToListAsync();
+
+        var toCreate = actions
+            .Where(a => !existingCodes.Contains($"{module.Code}_{a}"))
+            .ToList();
+
+        if (toCreate.Count == 0) return 0;
+
+        var permissions = new List<Permission>();
+        foreach (var action in toCreate)
+        {
+            var perm = new Permission
+            {
+                Code = $"{module.Code}_{action}",
+                Name = $"{module.Name} - {action}",
+                GroupName = module.Name,
+                IsSystem = false
+            };
+            permissions.Add(perm);
+        }
+
+        db.Permissions.AddRange(permissions);
+        await db.SaveChangesAsync();
+
+        var modulePerms = permissions
+            .Where(p => !existingModulePermCodes.Contains(p.Code))
+            .Select(p => new ModulePermission { ModuleId = module.Id, PermissionId = p.Id })
+            .ToList();
+
+        if (modulePerms.Count > 0)
+        {
+            db.ModulePermissions.AddRange(modulePerms);
+            await db.SaveChangesAsync();
+        }
+
+        return permissions.Count;
     }
 
     private void InvalidateCache()

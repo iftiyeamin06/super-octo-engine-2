@@ -453,4 +453,66 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         await db.SaveChangesAsync();
         return NoContent();
     }
+
+    private static readonly HashSet<string> AllowedPhotoTypes = new(StringComparer.OrdinalIgnoreCase) { "image/jpeg", "image/png", "image/webp" };
+    private const long MaxPhotoSize = 5 * 1024 * 1024; // 5 MB
+
+    [HttpPost("{id:long}/photo")]
+    public async Task<IActionResult> UploadPhoto(long id, IFormFile file)
+    {
+        var user = await db.AppUsers.FindAsync(id);
+        if (user is null) return NotFound();
+
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "No file uploaded." });
+
+        if (!AllowedPhotoTypes.Contains(file.ContentType))
+            return BadRequest(new { error = "Only JPEG, PNG, and WebP images are allowed." });
+
+        if (file.Length > MaxPhotoSize)
+            return BadRequest(new { error = "File size must be under 5 MB." });
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext)) ext = ".jpg";
+
+        var storageKey = $"profile-photos/{user.UserName}_{DateTime.UtcNow:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}{ext}";
+        var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "profile-photos");
+        if (!Directory.Exists(uploadsDir)) Directory.CreateDirectory(uploadsDir);
+
+        var filePath = Path.Combine(Directory.GetCurrentDirectory(), "uploads", storageKey);
+        await using var stream = new FileStream(filePath, FileMode.Create);
+        await file.CopyToAsync(stream);
+
+        // Delete old photo if exists
+        if (!string.IsNullOrEmpty(user.ProfilePhotoStorageKey))
+        {
+            var oldPath = Path.Combine(Directory.GetCurrentDirectory(), "uploads", user.ProfilePhotoStorageKey);
+            if (System.IO.File.Exists(oldPath)) System.IO.File.Delete(oldPath);
+        }
+
+        user.ProfilePhotoStorageKey = storageKey;
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return Ok(new { profilePhotoStorageKey = storageKey });
+    }
+
+    [HttpDelete("{id:long}/photo")]
+    public async Task<IActionResult> DeletePhoto(long id)
+    {
+        var user = await db.AppUsers.FindAsync(id);
+        if (user is null) return NotFound();
+
+        if (!string.IsNullOrEmpty(user.ProfilePhotoStorageKey))
+        {
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "uploads", user.ProfilePhotoStorageKey);
+            if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath);
+        }
+
+        user.ProfilePhotoStorageKey = null;
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return NoContent();
+    }
 }

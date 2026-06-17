@@ -4,6 +4,7 @@ export interface AuthUser {
   email: string;
   tenantName?: string;
   roles: string[];
+  profilePhotoStorageKey?: string | null;
 }
 
 export interface AuthState {

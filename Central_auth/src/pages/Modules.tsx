@@ -5,6 +5,7 @@ import { cn, formatDateTime } from "../lib/utils";
 import { TableSkeleton } from "../components/Skeleton";
 import { api, type ModuleListItem, type ModuleSavePayload, type ModuleRouteItem, type Permission } from "../lib/api";
 import { getSession, clearAccessibleModulesCache } from "../lib/auth";
+import QuickSetupWizard from "./QuickSetupWizard";
 
 export default function Modules() {
   const [items, setItems] = useState<ModuleListItem[]>([]);
@@ -55,6 +56,7 @@ export default function Modules() {
   }, [filtered]);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [quickSetup, setQuickSetup] = useState<{ id: number; name: string; code: string } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -64,6 +66,14 @@ export default function Modules() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Resolve Quick Setup module ID after items reload (avoids stale closure)
+  useEffect(() => {
+    if (quickSetup && quickSetup.id === 0 && items.length > 0) {
+      const found = items.find(m => m.name === quickSetup.name && m.code === quickSetup.code);
+      if (found) setQuickSetup({ id: found.id, name: found.name, code: found.code });
+    }
+  }, [items, quickSetup]);
 
   function openCreate() {
     setEditingId(null);
@@ -103,7 +113,10 @@ export default function Modules() {
     };
     try {
       if (editingId) await api.modules.update(editingId, payload);
-      else await api.modules.create(payload);
+      else {
+        await api.modules.create(payload);
+        setQuickSetup({ id: 0, name: form.name, code: form.code }); // id=0 until we reload
+      }
       closeModal(); load();
     } catch (e: unknown) { setFormError(e instanceof Error ? e.message : "Save failed"); }
     finally { setSaving(false); }
@@ -164,11 +177,27 @@ export default function Modules() {
     }
   }
 
+  function getModulePermPrefix(moduleId: number) {
+    return items.find(m => m.id === moduleId)?.code ?? "";
+  }
+
+  function getPermForMethod(code: string, method: string) {
+    const map: Record<string, string> = { GET: "View", POST: "Create", PUT: "Update", DELETE: "Delete", PATCH: "Update" };
+    return map[method] ? `${code}_${map[method]}` : "";
+  }
+
   function openAddRoute(moduleId: number) {
-    setRouteForm({ httpMethod: "GET", routePattern: "", requiredPermissionCode: "", description: "" });
+    const code = getModulePermPrefix(moduleId);
+    setRouteForm({ httpMethod: "GET", routePattern: "", requiredPermissionCode: `${code}_View`, description: "" });
     setRouteFormTouched({ routePattern: false, requiredPermissionCode: false });
     setRouteFormError(null);
     setRouteModal({ moduleId });
+  }
+
+  function onHttpMethodChange(method: string) {
+    if (!routeModal) return;
+    const code = getModulePermPrefix(routeModal.moduleId);
+    setRouteForm(f => ({ ...f, httpMethod: method, requiredPermissionCode: getPermForMethod(code, method) }));
   }
 
   async function saveRoute() {
@@ -529,7 +558,7 @@ export default function Modules() {
               {routeFormError && <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2 dark:text-red-400 dark:border-red-900/40 dark:bg-red-950/20">{routeFormError}</div>}
               <div>
                 <label className="block text-xs font-medium text-foreground mb-1">HTTP Method *</label>
-                <select value={routeForm.httpMethod} onChange={e => setRouteForm(f => ({ ...f, httpMethod: e.target.value }))}
+                <select value={routeForm.httpMethod} onChange={e => onHttpMethodChange(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
                   {["GET","POST","PUT","DELETE","PATCH"].map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
@@ -561,7 +590,12 @@ export default function Modules() {
                   <p className="text-xs text-red-500 mt-1">Permission code is required</p>
                 )}
                 <datalist id="route-permission-codes">
-                  {permissionsList.map(p => <option key={p.id} value={p.code}>{p.name}</option>)}
+                  {permissionsList
+                    .filter(p => {
+                      const currentModule = items.find(m => m.id === routeModal?.moduleId);
+                      return !currentModule || p.groupName === currentModule.name;
+                    })
+                    .map(p => <option key={p.id} value={p.code}>{p.name}</option>)}
                 </datalist>
               </div>
               <div>
@@ -579,6 +613,16 @@ export default function Modules() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Quick Setup wizard ─────────────────────────────────────────── */}
+      {quickSetup && quickSetup.id > 0 && (
+        <QuickSetupWizard
+          moduleId={quickSetup.id}
+          moduleName={quickSetup.name}
+          moduleCode={quickSetup.code}
+          onClose={() => setQuickSetup(null)}
+        />
       )}
     </div>
   );

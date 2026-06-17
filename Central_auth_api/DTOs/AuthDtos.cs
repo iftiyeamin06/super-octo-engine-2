@@ -13,7 +13,8 @@ public record AuthUserDto(
     string FullName,
     string Email,
     string? TenantName,
-    IEnumerable<string> Roles
+    IEnumerable<string> Roles,
+    string? ProfilePhotoStorageKey
 );
 
 public record RefreshRequest(string RefreshToken);

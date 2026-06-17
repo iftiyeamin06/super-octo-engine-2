@@ -6,15 +6,16 @@ const THEME_KEY = "central_auth_theme";
 
 type Theme = "light" | "dark";
 
-export function useTheme() {
-  const [theme, setTheme] = useState<Theme>("light");
+function getInitialTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+  } catch { /* ignore */ }
+  return "light";
+}
 
-  useEffect(() => {
-    const stored = localStorage.getItem(THEME_KEY) as Theme | null;
-    if (stored === "light" || stored === "dark") {
-      setTheme(stored);
-    }
-  }, []);
+export function useTheme() {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme);
