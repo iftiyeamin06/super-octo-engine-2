@@ -60,6 +60,7 @@ export const api = {
     unlock: (id: number)             => req(`/users/${id}/unlock`, { method: "PATCH" }),
     delete: (id: number)             => req(`/users/${id}`, { method: "DELETE" }),
     detail: (id: number)             => req<UserListItem>(`/users/${id}`),
+    profile: (id: number)            => req<UserProfile>(`/users/${id}/profile`),
     permissions: (id: number)        => req<number[]>(`/users/${id}/permissions`),
     updatePermissions: (id: number, permissionIds: number[]) =>
       req<void>(`/users/${id}/permissions`, { method: "PUT", body: JSON.stringify({ permissionIds }) }),
@@ -177,3 +178,26 @@ export interface ModuleRouteUpdatePayload { httpMethod: string; routePattern: st
 export interface RouteListItem { id: number; moduleId: number; moduleName: string; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string; isActive: boolean; createdAt: string; }
 export interface RouteCreatePayload { moduleId: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; }
 export interface RouteUpdatePayload { moduleId: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; description?: string | null; isActive: boolean; }
+export interface UserProfile {
+  id: number; firstName: string; lastName: string; email: string; userName: string;
+  phoneNumber?: string | null;
+  employeeId?: string | null;
+  profilePhotoStorageKey?: string | null;
+  isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean;
+  failedLoginAttempts: number; lastLoginAt?: string; createdAt: string; updatedAt?: string;
+  tenantId?: number; tenantName?: string;
+  departmentId?: number; departmentName?: string;
+  designationId?: number; designationName?: string;
+  roles: RoleSummary[];
+  permissions: PermissionSummary[];
+  moduleAccesses: ModuleAccessSummary[];
+  routeAccesses: RouteAccessSummary[];
+  sessions: SessionSummary[];
+  recentAudit: AuditSummary[];
+}
+export interface RoleSummary { id: number; name: string; description?: string; }
+export interface PermissionSummary { id: number; code: string; name: string; groupName?: string; }
+export interface ModuleAccessSummary { id: number; name: string; code: string; route: string; }
+export interface RouteAccessSummary { id: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; }
+export interface SessionSummary { sessionId: string; ipAddress?: string; userAgent?: string; loginAtUtc: string; expiresAtUtc: string; isActive: boolean; }
+export interface AuditSummary { id: number; actionType: string; entityName: string; entityKey: string; ipAddress?: string; createdAt: string; }

@@ -132,6 +132,80 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
             u.UserRoles.Where(ur => ur.IsActive && ur.Role != null).Select(ur => ur.Role!.Name).ToList());
     }
 
+    [HttpGet("{id:long}/profile")]
+    public async Task<ActionResult<UserProfileDto>> GetProfile(long id)
+    {
+        var u = await db.AppUsers
+            .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
+            .Include(u => u.Department)
+            .Include(u => u.Designation)
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r!.RolePermissions).ThenInclude(rp => rp.Permission)
+            .Include(u => u.UserPermissions).ThenInclude(up => up.Permission)
+            .Include(u => u.ModuleAccesses).ThenInclude(uma => uma.Module)
+            .Include(u => u.UserApiRoutes).ThenInclude(ur => ur.ApiServiceRoute)
+            .Include(u => u.LoginSessions)
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+        if (u is null) return NotFound();
+
+        // Combine role permissions + direct permissions, deduplicate
+        var rolePerms = u.UserRoles
+            .Where(ur => ur.IsActive && ur.Role != null)
+            .SelectMany(ur => ur.Role!.RolePermissions)
+            .Where(rp => rp.IsActive && rp.Permission != null)
+            .Select(rp => rp.Permission!);
+
+        var directPerms = u.UserPermissions
+            .Where(up => up.IsActive && up.Permission != null)
+            .Select(up => up.Permission!);
+
+        var allPerms = rolePerms.Concat(directPerms)
+            .GroupBy(p => p.Id)
+            .Select(g => g.First())
+            .OrderBy(p => p.GroupName).ThenBy(p => p.Code)
+            .Select(p => new PermissionSummaryDto(p.Id, p.Code, p.Name, p.GroupName))
+            .ToList();
+
+        var sessions = u.LoginSessions
+            .Where(s => s.EndedAtUtc == null)
+            .OrderByDescending(s => s.LoginAtUtc)
+            .Take(10)
+            .Select(s => new SessionSummaryDto(
+                s.SessionId, s.IpAddress, s.UserAgent,
+                s.LoginAtUtc, s.ExpiresAtUtc, true))
+            .ToList();
+
+        var recentAudit = await db.AuditHistories
+            .Where(a => a.AppUserId == id)
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(10)
+            .Select(a => new AuditSummaryDto(
+                a.Id, a.ActionType, a.EntityName, a.EntityKey, a.IpAddress, a.CreatedAt))
+            .ToListAsync();
+
+        return new UserProfileDto(
+            u.Id, u.FirstName, u.LastName, u.Email, u.UserName,
+            u.PhoneNumber,
+            u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.EmployeeId).FirstOrDefault(),
+            u.ProfilePhotoStorageKey, u.IsActive, u.IsLocked, u.TwoFactorEnabled,
+            u.FailedLoginAttempts, u.LastLoginAt, u.CreatedAt, u.UpdatedAt,
+            u.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.TenantId).FirstOrDefault(),
+            u.TenantUsers.Where(tu => tu.IsActive && tu.Tenant != null).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+            u.DepartmentId, u.Department?.Name,
+            u.DesignationId, u.Designation?.Name,
+            u.UserRoles.Where(ur => ur.IsActive && ur.Role != null)
+                .Select(ur => new RoleSummaryDto(ur.Role!.Id, ur.Role.Name, ur.Role.Description)).ToList(),
+            allPerms,
+            u.ModuleAccesses.Where(uma => uma.IsActive && uma.Module != null)
+                .Select(uma => new ModuleAccessSummaryDto(uma.Module!.Id, uma.Module.Name, uma.Module.Code, uma.Module.Route)).ToList(),
+            u.UserApiRoutes.Where(ur => ur.IsActive && ur.ApiServiceRoute != null)
+                .Select(ur => new RouteAccessSummaryDto(
+                    ur.ApiServiceRoute!.Id, ur.ApiServiceRoute.HttpMethod,
+                    ur.ApiServiceRoute.RoutePattern, ur.ApiServiceRoute.RequiredPermissionCode)).ToList(),
+            sessions,
+            recentAudit);
+    }
+
     [HttpPost]
     public async Task<ActionResult> Create([FromBody] UserCreateDto dto)
     {

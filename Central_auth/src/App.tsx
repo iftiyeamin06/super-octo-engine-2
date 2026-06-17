@@ -14,6 +14,8 @@ import Modules from "./pages/Modules";
 import ModulePage from "./pages/ModulePage";
 import AccessTester from "./pages/AccessTester";
 import UserAccess from "./pages/UserAccess";
+import UserProfileList from "./pages/UserProfileList";
+import UserProfilePage from "./pages/UserProfile";
 
 export default function App() {
   return (
@@ -35,6 +37,8 @@ export default function App() {
             <Route path="apps/:moduleId" element={<ModulePage />} />
             <Route path="access-tester" element={<AccessTester />} />
             <Route path="user-access" element={<UserAccess />} />
+            <Route path="user-profiles" element={<UserProfileList />} />
+            <Route path="user-profiles/:id" element={<UserProfilePage />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -5,7 +5,6 @@ import { cn, formatDateTime } from "../lib/utils";
 import { TableSkeleton } from "../components/Skeleton";
 import { api, type ModuleListItem, type ModuleSavePayload, type ModuleRouteItem, type Permission } from "../lib/api";
 import { getSession, clearAccessibleModulesCache } from "../lib/auth";
-import QuickSetupWizard from "./QuickSetupWizard";
 
 export default function Modules() {
   const [items, setItems] = useState<ModuleListItem[]>([]);
@@ -56,7 +55,6 @@ export default function Modules() {
   }, [filtered]);
 
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [quickSetup, setQuickSetup] = useState<{ id: number; name: string; code: string } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -66,14 +64,6 @@ export default function Modules() {
   };
 
   useEffect(() => { load(); }, []);
-
-  // Resolve Quick Setup module ID after items reload (avoids stale closure)
-  useEffect(() => {
-    if (quickSetup && quickSetup.id === 0 && items.length > 0) {
-      const found = items.find(m => m.name === quickSetup.name && m.code === quickSetup.code);
-      if (found) setQuickSetup({ id: found.id, name: found.name, code: found.code });
-    }
-  }, [items, quickSetup]);
 
   function openCreate() {
     setEditingId(null);
@@ -113,10 +103,7 @@ export default function Modules() {
     };
     try {
       if (editingId) await api.modules.update(editingId, payload);
-      else {
-        await api.modules.create(payload);
-        setQuickSetup({ id: 0, name: form.name, code: form.code }); // id=0 until we reload
-      }
+      else await api.modules.create(payload);
       closeModal(); load();
     } catch (e: unknown) { setFormError(e instanceof Error ? e.message : "Save failed"); }
     finally { setSaving(false); }
@@ -613,16 +600,6 @@ export default function Modules() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* ── Quick Setup wizard ─────────────────────────────────────────── */}
-      {quickSetup && quickSetup.id > 0 && (
-        <QuickSetupWizard
-          moduleId={quickSetup.id}
-          moduleName={quickSetup.name}
-          moduleCode={quickSetup.code}
-          onClose={() => setQuickSetup(null)}
-        />
       )}
     </div>
   );
