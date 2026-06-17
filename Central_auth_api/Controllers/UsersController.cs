@@ -11,6 +11,27 @@ namespace CentralAuth.Api.Controllers;
 [Route("api/[controller]")]
 public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator employeeIdGenerator) : ControllerBase
 {
+    private static string? ValidatePassword(string? password, bool required = true)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            return required ? "Password is required." : null;
+
+        if (password.Length < 8)
+            return "Password must be at least 8 characters.";
+        if (password.Length > 128)
+            return "Password must not exceed 128 characters.";
+
+        int classes = 0;
+        if (password.Any(char.IsUpper)) classes++;
+        if (password.Any(char.IsLower)) classes++;
+        if (password.Any(char.IsDigit)) classes++;
+        if (password.Any(c => !char.IsLetterOrDigit(c))) classes++;
+
+        if (classes < 3)
+            return "Password must contain at least 3 of: uppercase, lowercase, digits, special characters.";
+
+        return null;
+    }
     [HttpGet("me/modules")]
     public async Task<IActionResult> GetMyModules()
     {
@@ -212,8 +233,9 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         if (dto.TenantIds is null || dto.TenantIds.Count == 0)
             return BadRequest(new { error = "At least one TenantId is required for automatic EmployeeId generation." });
 
-        if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
-            return BadRequest(new { error = "Password must be at least 6 characters." });
+        var passwordError = ValidatePassword(dto.Password, required: true);
+        if (passwordError is not null)
+            return BadRequest(new { error = passwordError });
 
         // ── Per-tenant serialization ─────────────────────────────────────
         // We wrap ID generation and the INSERT in the SAME transaction.
@@ -291,11 +313,13 @@ public class UsersController(CentralAuthDbContext db, IEmployeeIdGenerator emplo
         user.DesignationId = dto.DesignationId; user.IsActive = dto.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
 
-        if (!string.IsNullOrWhiteSpace(dto.Password) && dto.Password.Length < 6)
-            return BadRequest(new { error = "Password must be at least 6 characters." });
-
         if (!string.IsNullOrWhiteSpace(dto.Password))
+        {
+            var passwordError = ValidatePassword(dto.Password, required: false);
+            if (passwordError is not null)
+                return BadRequest(new { error = passwordError });
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+        }
 
         // ── Replace tenant + role links in a single transaction ─────────
         if (dto.TenantIds is not null)

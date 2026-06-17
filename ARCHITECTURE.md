@@ -18,6 +18,8 @@ Built with **React 19 + Vite 8** (frontend), **.NET 8 Web API** (backend), **MyS
 9. [Complete Data Flow](#9-complete-data-flow)
 10. [Key Design Decisions](#10-key-design-decisions)
 11. [Route Protection Matrix](#11-route-protection-matrix)
+12. [Security Measures](#12-security-measures)
+13. [User Profile System](#13-user-profile-system)
 
 ---
 
@@ -28,14 +30,14 @@ super-octo-engine-2/
 ├── Central_auth_api/          # .NET 8 Web API backend
 │   ├── Controllers/           # 15 API controllers
 │   ├── Models/                # 26 EF Core entities
-│   ├── DTOs/                  # 15+ request/response DTOs
+│   ├── DTOs/                  # 16+ request/response DTOs
 │   ├── Filters/               # DynamicPermissionMiddleware + Filter
 │   ├── Data/                  # DbContext + Migrations (9)
 │   ├── Services/              # EmployeeIdGenerator
-│   └── Program.cs             # DI, middleware pipeline, CORS, Swagger
+│   └── Program.cs             # DI, middleware pipeline, CORS, Swagger, Rate Limiting
 │
 ├── Central_auth/              # React 19 + Vite 8 frontend
-│   ├── src/pages/             # 13 page components
+│   ├── src/pages/             # 15 page components
 │   ├── src/components/        # 9 reusable components
 │   ├── src/lib/               # api.ts, auth.ts, utils.ts
 │   └── vite.config.ts         # Proxy /api/* → backend :5089
@@ -50,7 +52,7 @@ super-octo-engine-2/
 | Backend | ASP.NET Core 8, EF Core 8 (Pomelo MySQL) | `:5089` |
 | Frontend | React 19, Vite 8, Tailwind 3.4, Radix UI | `:5173` |
 | Database | MySQL 8 (`centerl_auth`, tables prefixed `auth_`) | `:3306` |
-| Auth | JWT Bearer, HMAC-SHA256, BCrypt | — |
+| Auth | JWT Bearer, HMAC-SHA256, BCrypt, Rate Limiting | — |
 
 ---
 
@@ -87,6 +89,7 @@ Central_auth_api/
 ├── DTOs/
 │   ├── AuthDtos.cs                      # LoginRequest, LoginResponse, RefreshRequest
 │   ├── UserDtos.cs                      # UserListDto, Create/Update, Role/Module/Route update DTOs
+│   ├── UserProfileDtos.cs               # UserProfileDto, RoleSummary, PermissionSummary, SessionSummary, AuditSummary
 │   ├── RoleDtos.cs                      # RoleListDto, RoleDetailDto, PermissionDto, Module DTOs
 │   ├── RouteDtos.cs                     # RouteListItemDto, Create/Update DTOs
 │   ├── TenantDtos.cs                    # Tenant CRUD DTOs
@@ -94,11 +97,11 @@ Central_auth_api/
 │   └── PagedResult.cs                   # Generic paged result wrapper
 │
 ├── Controllers/
-│   ├── AuthController.cs                # POST /api/auth/login, logout, set-password, introspect, check-permission
-│   ├── UsersController.cs               # GET/POST/PUT /api/users, roles/modules/routes endpoints, lock/unlock
+│   ├── AuthController.cs                # POST /api/auth/login (rate-limited), logout (JWT blacklist), introspect, check-permission
+│   ├── UsersController.cs               # GET/POST/PUT /api/users, roles/modules/routes endpoints, lock/unlock, profile, photo upload
 │   ├── RolesController.cs               # CRUD /api/roles, soft-delete
 │   ├── PermissionsController.cs         # CRUD /api/permissions, GET /groups
-│   ├── ModulesController.cs             # CRUD /api/modules, accessible, pages, permissions, routes (nested)
+│   ├── ModulesController.cs             # CRUD /api/modules, accessible, pages, permissions, routes (nested), auto-generate permissions
 │   ├── RoutesController.cs              # CRUD /api/routes (global)
 │   ├── TenantsController.cs             # CRUD /api/tenants
 │   ├── DepartmentsController.cs         # CRUD /api/departments
@@ -128,7 +131,7 @@ Central_auth_api/
 Central_auth/src/
 ├── App.tsx                              # BrowserRouter + ProtectedRoute wrapper
 │
-├── pages/                              # 13 page components
+├── pages/                              # 15 page components
 │   ├── Login.tsx                        # Email/password → JWT → localStorage
 │   ├── Dashboard.tsx                    # Stats cards, recent users, audit feed
 │   ├── Users.tsx                        # User CRUD table (no role/permission assignment)
@@ -141,13 +144,15 @@ Central_auth/src/
 │   ├── Designations.tsx                 # Designation CRUD (tenant-filtered)
 │   ├── Sessions.tsx                     # Active session monitoring + revoke
 │   ├── AuditLogs.tsx                    # Paginated audit trail
-│   └── AccessTester.tsx                 # Test all routes against current user's JWT
+│   ├── AccessTester.tsx                 # Test all routes against current user's JWT
+│   ├── UserProfileList.tsx              # User list for profile view (click row → profile)
+│   └── UserProfile.tsx                  # Full user profile: info, roles, permissions, sessions, audit
 │
 ├── components/
 │   ├── ProtectedRoute.tsx               # Auth guard — checks localStorage session + expiry
 │   ├── Layout.tsx                       # Sidebar + Header + Outlet
 │   ├── Sidebar.tsx                      # Hardcoded nav groups (Main/Org/Monitoring) + dynamic Applications from GET /api/modules/accessible
-│   ├── Header.tsx                       # Path-based title + "My Permissions" JWT decoder + search + bell icon
+│   ├── Header.tsx                       # Path-based title + "My Permissions" JWT decoder + profile dropdown with photo upload
 │   ├── UserForm.tsx                     # Create/edit user form (no role multi-select)
 │   ├── userFormModel.ts                 # Form state helpers
 │   ├── Badge.tsx                        # Status/label chip
@@ -340,6 +345,7 @@ api.auth.login()
 Vite proxy ────────────────►  │
   (:5173 → :5089)             │
                               ├─ [AllowAnonymous] (global auth bypass)
+                              ├─ [EnableRateLimiting("login")] (10 req/min per IP)
                               │
                               ├─ Null check: IsNullOrWhiteSpace(email) || IsNullOrWhiteSpace(password)?
                               │    └─ YES → 401 "Invalid email or password."
@@ -354,6 +360,11 @@ Vite proxy ────────────────►  │
                               │    └─ YES → audit "Login Failed" (no EntityKey)
                               │            → SaveChanges → 401
                               │
+                              ├─ [C1] IsLocked? (BEFORE bcrypt)
+                              │    ├─ YES + LockoutEnd > UtcNow → 401 (still locked)
+                              │    └─ YES + LockoutEnd <= UtcNow → [C2] Auto-unlock:
+                              │         IsLocked = false, LockoutEnd = null, FailedLoginAttempts = 0
+                              │
                               ├─ BCrypt.Verify(password, User.PasswordHash)
                               │    ├─ FAIL → FailedLoginAttempts++
                               │    │         if (FailedLoginAttempts >= 5)
@@ -362,10 +373,6 @@ Vite proxy ────────────────►  │
                               │    │         audit "Login Failed" (AppUserId set)
                               │    │         SaveChanges → 401
                               │    └─ PASS → continue
-                              │
-                              ├─ IsLocked?
-                              │    └─ YES → audit "Login Failed"
-                              │            → SaveChanges → 401 "Account is locked."
                               │
                               ├─ Load roles & permissions:
                               │    User → UserRoles → Role
@@ -450,6 +457,29 @@ navigate("/dashboard")
 const payload = session.token.split('.')[1];
 const decoded = JSON.parse(atob(payload));
 // returns decoded.permission (array of strings)
+```
+
+### Logout Flow (JWT Blacklist)
+
+```
+Header.tsx → "Sign Out"
+  │
+  ▼
+api.auth.logout()
+  │  POST /api/auth/logout
+  ▼                          AuthController.Logout()
+  │                          ├─ Extract JTI from JWT claims
+  │                          ├─ Add JTI to auth_token_blacklist (C4)
+  │                          │    TokenJti, AppUserId, ExpiresAt, Reason="Logout"
+  │                          ├─ Audit record: ActionType = "Logout"
+  │                          ├─ Deactivate all active sessions
+  │                          └─ SaveChangesAsync()
+  │
+  ▼
+auth.ts: clearSession()
+  ├─ localStorage.removeItem("central_auth_session")
+  ├─ clearAccessibleModulesCache()
+  └─ navigate("/login")
 ```
 
 ---
@@ -606,8 +636,24 @@ builder.Services.AddAuthorization(options =>
         .RequireAuthenticatedUser().Build();
 });
 
+// C3: Rate limiting for login endpoint (10 req/min per IP)
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                QueueLimit = 0,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+});
+
 app.UseAuthentication();                                // JWT → ClaimsPrincipal
 app.UseAuthorization();                                 // Policy auth (default: RequireAuthenticatedUser)
+app.UseRateLimiter();                                   // Rate limiting middleware
 app.UseMiddleware<DynamicPermissionMiddleware>();        // Route-permission enforcement
 app.MapControllers();                                   // Controller routing
 // Public endpoints: [AllowAnonymous] on AuthController.Login, .AllowAnonymous() on /health
@@ -867,6 +913,8 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 | `/login` | ❌ No | Public — unauthenticated users can reach it; backend uses `[AllowAnonymous]` on global auth |
 | `/dashboard` | ✅ Yes | Requires valid session |
 | `/users` | ✅ Yes | Requires valid session |
+| `/user-profiles` | ✅ Yes | User list for profile view |
+| `/user-profiles/:id` | ✅ Yes | Full user profile detail |
 | `/roles` | ✅ Yes | Requires valid session |
 | `/user-access` | ✅ Yes | Requires valid session |
 | `/Modules` | ✅ Yes | Capital M (matches file system) |
@@ -891,18 +939,214 @@ For a user with role **"Inventory Manager"** (only `Inventory_FullAccess` permis
 
 ---
 
+## 12. Security Measures
+
+### Login Security (C1-C6 Fixes)
+
+| Issue | Fix | Location |
+|-------|-----|----------|
+| **C1: Lockout after bcrypt** | Lockout check moved BEFORE bcrypt verification | `AuthController.cs:43-65` |
+| **C2: Permanent lockout** | Auto-unlock when `LockoutEnd` expires; `FailedLoginAttempts` resets | `AuthController.cs:49-55` |
+| **C3: No rate limiting** | Rate limiting: 10 login attempts per minute per IP | `Program.cs`, `AuthController.cs` |
+| **C4: No token revocation** | JWT JTI added to `TokenBlacklists` on logout | `AuthController.cs:137-152` |
+| **C5: Weak passwords** | Password policy: 8+ chars, max 128, 3 of 4 classes (upper/lower/digit/special) | `UsersController.cs:14-31` |
+| **C6: Debug endpoint** | Debug `set-password` endpoint removed entirely | `AuthController.cs` |
+
+### Password Policy
+
+```
+Minimum length:     8 characters
+Maximum length:     128 characters (BCrypt truncates at 72)
+Required classes:   3 of 4
+                    ├─ Uppercase (A-Z)
+                    ├─ Lowercase (a-z)
+                    ├─ Digits (0-9)
+                    └─ Special characters (!@#$%^&*)
+```
+
+### Rate Limiting
+
+```
+Policy:     "login"
+Partition:  Per IP address
+Limit:      10 requests per 1-minute window
+Queue:      0 (reject immediately)
+Response:   429 Too Many Requests
+```
+
+### Token Blacklist
+
+```
+On logout:
+  1. Extract JTI from current JWT claims
+  2. Add to auth_token_blacklist:
+     - TokenJti: the JTI claim value
+     - AppUserId: the user's ID
+     - ExpiresAt: token expiry time
+     - Reason: "Logout"
+  3. Existing introspect/check-permission endpoints already check blacklist
+```
+
+### Session Management
+
+```
+Login:
+  - Create UserLoginSession with SessionId, IpAddress, UserAgent
+  - Set ExpiresAtUtc from JWT expiry
+
+Logout:
+  - Deactivate ALL active sessions for the user
+  - Set EndedAtUtc, EndedReason = "Logout"
+
+Lockout:
+  - After 5 failed attempts: IsLocked = true, LockoutEnd = UtcNow + 30 min
+  - Auto-unlock when LockoutEnd <= UtcNow
+  - FailedLoginAttempts reset on successful login or auto-unlock
+```
+
+---
+
+## 13. User Profile System
+
+### Overview
+
+The User Profile system provides a detailed view of any user's information, roles, permissions, sessions, and activity. It consists of two pages:
+
+1. **UserProfileList** (`/user-profiles`) — Clickable user table
+2. **UserProfile** (`/user-profiles/:id`) — Full profile detail
+
+### Backend: GET /api/users/{id}/profile
+
+Returns comprehensive user data in a single API call:
+
+```csharp
+UserProfileDto(
+    // User info
+    Id, FirstName, LastName, Email, UserName, PhoneNumber,
+    EmployeeId, ProfilePhotoStorageKey, IsActive, IsLocked, TwoFactorEnabled,
+    FailedLoginAttempts, LastLoginAt, CreatedAt, UpdatedAt,
+    // Related
+    TenantId, TenantName, DepartmentId, DepartmentName,
+    DesignationId, DesignationName,
+    // Aggregated
+    Roles: List<RoleSummaryDto>,
+    Permissions: List<PermissionSummaryDto>,  // role-based + direct, deduplicated
+    ModuleAccesses: List<ModuleAccessSummaryDto>,
+    RouteAccesses: List<RouteAccessSummaryDto>,
+    Sessions: List<SessionSummaryDto>,        // last 10 active
+    RecentAudit: List<AuditSummaryDto>        // last 10
+)
+```
+
+**Data sources combined:**
+- Role permissions: `UserRoles → Role → RolePermissions → Permission`
+- Direct permissions: `UserPermissions → Permission`
+- Module accesses: `UserModuleAccesses → Module`
+- Route accesses: `UserApiRoutes → ApiServiceRoute`
+- Sessions: `UserLoginSessions` (where `EndedAtUtc == null`)
+- Audit: `AuditHistories` (where `AppUserId == id`)
+
+### Frontend: UserProfileList.tsx
+
+```
+/user-profiles
+  │
+  ├── Header: "User Profile" title + subtitle
+  ├── Search input + status filter (all/active/inactive/locked)
+  │
+  └── Table: clickable rows
+      ├── Avatar (photo or initial)
+      ├── Name + Email
+      ├── Roles (badges, max 3 shown)
+      ├── Department
+      ├── Status badge
+      ├── Last Login
+      ├── Joined date
+      └── "View →" link
+```
+
+### Frontend: UserProfile.tsx
+
+```
+/user-profiles/:id
+  │
+  ├── Header: Back button + Avatar + Name + Status badges (Active/Unlocked/2FA)
+  │
+  └── 2x2 Card Grid:
+      ├── Personal Information
+      │   Email, Username, Phone, Employee ID, Tenant, Department,
+      │   Designation, Created, Updated, Last Login, Failed Attempts
+      │
+      ├── Roles & Permissions
+      │   Roles (badges), Permissions (expandable, permission codes),
+      │   Direct Module Access (badges), Direct Route Access (method + pattern)
+      │
+      ├── Active Sessions
+      │   Last 10 active sessions: IP, User Agent, Login time
+      │
+      └── Recent Activity
+          Last 10 audit entries: Action type (color-coded), Entity, Key, IP, Time
+```
+
+### Frontend Types (api.ts)
+
+```typescript
+interface UserProfile {
+  id: number; firstName: string; lastName: string; email: string;
+  userName: string; phoneNumber?: string | null;
+  employeeId?: string | null; profilePhotoStorageKey?: string | null;
+  isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean;
+  failedLoginAttempts: number; lastLoginAt?: string;
+  createdAt: string; updatedAt?: string;
+  tenantId?: number; tenantName?: string;
+  departmentId?: number; departmentName?: string;
+  designationId?: number; designationName?: string;
+  roles: RoleSummary[];
+  permissions: PermissionSummary[];
+  moduleAccesses: ModuleAccessSummary[];
+  routeAccesses: RouteAccessSummary[];
+  sessions: SessionSummary[];
+  recentAudit: AuditSummary[];
+}
+
+interface RoleSummary { id: number; name: string; description?: string; }
+interface PermissionSummary { id: number; code: string; name: string; groupName?: string; }
+interface ModuleAccessSummary { id: number; name: string; code: string; route: string; }
+interface RouteAccessSummary { id: number; httpMethod: string; routePattern: string; requiredPermissionCode: string; }
+interface SessionSummary { sessionId: string; ipAddress?: string; userAgent?: string; loginAtUtc: string; expiresAtUtc: string; isActive: boolean; }
+interface AuditSummary { id: number; actionType: string; entityName: string; entityKey: string; ipAddress?: string; createdAt: string; }
+```
+
+### Sidebar Navigation
+
+```
+Main Group:
+  ├── Dashboard
+  ├── Users
+  ├── User Profile        ← NEW
+  ├── Roles & Permissions
+  ├── Modules
+  └── User Access
+```
+
+---
+
 ## Key Files Reference
 
 | File | Purpose |
 |------|---------|
-| `Central_auth_api/Controllers/UsersController.cs` | User CRUD, role/module/route assignment endpoints |
+| `Central_auth_api/Controllers/UsersController.cs` | User CRUD, role/module/route assignment endpoints, profile endpoint, photo upload, password validation |
 | `Central_auth_api/Controllers/RolesController.cs` | Role CRUD with permission sync |
 | `Central_auth_api/Controllers/ModulesController.cs` | Module CRUD, accessible endpoint, nested route CRUD, auto-generate 7 default permissions on create |
+| `Central_auth_api/Controllers/AuthController.cs` | Login (rate-limited), logout (JWT blacklist), introspect, check-permission |
 | `Central_auth_api/Filters/DynamicPermissionMiddleware.cs` | Global route-permission enforcement + direct grant bypass |
 | `Central_auth_api/Data/CentralAuthDbContext.cs` | DbContext with 25 DbSets and auto-audit |
+| `Central_auth_api/DTOs/UserProfileDtos.cs` | UserProfileDto, RoleSummary, PermissionSummary, SessionSummary, AuditSummary |
 | `Central_auth/src/pages/Roles.tsx` | Module→route permission tree (modal + read-only) |
 | `Central_auth/src/pages/UserAccess.tsx` | 3-section hub — unified Save All, no scroll containers, single Save button at bottom |
 | `Central_auth/src/pages/Modules.tsx` | Module CRUD, route management, inline form validation (formTouched states) |
-| `Central_auth/src/lib/api.ts` | All API endpoints, fetch wrapper with JWT + 401 redirect |
+| `Central_auth/src/pages/UserProfileList.tsx` | User list for profile view (click row → profile) |
+| `Central_auth/src/pages/UserProfile.tsx` | Full user profile: info, roles, permissions, sessions, audit |
+| `Central_auth/src/lib/api.ts` | All API endpoints, fetch wrapper with JWT + 401 redirect, FormData detection |
 | `Central_auth/src/lib/auth.ts` | Session management, JWT decode, permission extraction |
 | `Central_auth/src/lib/utils.ts` | `cn()` utility, `formatDateTime()` — explicit en-US date formatting |

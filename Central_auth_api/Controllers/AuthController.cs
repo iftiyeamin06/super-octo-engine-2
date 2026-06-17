@@ -1,11 +1,13 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.DTOs;
 using CentralAuth.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -16,6 +18,7 @@ namespace CentralAuth.Api.Controllers;
 public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : ControllerBase
 {
     [AllowAnonymous]
+    [EnableRateLimiting("login")]
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest req)
     {
@@ -41,6 +44,29 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             return Unauthorized(new { message = "Invalid email or password." });
         }
 
+        // C1+C2: Check lockout BEFORE password verification
+        if (user.IsLocked)
+        {
+            // Auto-unlock if lockout period has expired
+            if (user.LockoutEnd.HasValue && user.LockoutEnd <= DateTime.UtcNow)
+            {
+                user.IsLocked = false;
+                user.LockoutEnd = null;
+                user.FailedLoginAttempts = 0;
+                user.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                db.AuditHistories.Add(new AuditHistory
+                {
+                    ActionType = "Login Failed", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                    AppUserId = user.Id, IpAddress = ip, CreatedAt = DateTime.UtcNow, IsActive = true
+                });
+                await db.SaveChangesAsync();
+                return Unauthorized(new { message = "Invalid email or password." });
+            }
+        }
+
         if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
         {
             user.FailedLoginAttempts++;
@@ -58,17 +84,6 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             });
             await db.SaveChangesAsync();
             return Unauthorized(new { message = "Invalid email or password." });
-        }
-
-        if (user.IsLocked)
-        {
-            db.AuditHistories.Add(new AuditHistory
-            {
-                ActionType = "Login Failed", EntityName = "AppUser", EntityKey = user.Id.ToString(),
-                AppUserId = user.Id, IpAddress = ip, CreatedAt = DateTime.UtcNow, IsActive = true
-            });
-            await db.SaveChangesAsync();
-            return Unauthorized(new { message = "Account is locked. Contact your administrator." });
         }
 
         var roles = user.UserRoles.Where(ur => ur.Role is not null).Select(ur => ur.Role!.Name).ToList();
@@ -131,8 +146,28 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     public async Task<IActionResult> Logout()
     {
         var uidClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var jtiClaim = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+
         if (uidClaim is not null && long.TryParse(uidClaim, out var userId))
         {
+            // C4: Blacklist the current JWT token
+            if (!string.IsNullOrWhiteSpace(jtiClaim))
+            {
+                var expClaim = User.FindFirst(JwtRegisteredClaimNames.Exp)?.Value;
+                var expiresAt = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
+                if (long.TryParse(expClaim, out var expUnix))
+                    expiresAt = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+
+                db.TokenBlacklists.Add(new TokenBlacklist
+                {
+                    TokenJti = jtiClaim,
+                    AppUserId = userId,
+                    ExpiresAt = expiresAt,
+                    Reason = "Logout",
+                    IsActive = true
+                });
+            }
+
             db.AuditHistories.Add(new AuditHistory
             {
                 ActionType = "Logout",
@@ -158,23 +193,6 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         }
         return Ok(new { message = "Logged out." });
     }
-
-#if DEBUG
-    [AllowAnonymous]
-    [HttpPost("set-password")]
-    public async Task<IActionResult> SetPassword([FromBody] SetPasswordRequest req)
-    {
-        var user = await db.AppUsers.FirstOrDefaultAsync(u => u.NormalizedEmail == req.Email.ToUpperInvariant());
-        if (user is null) return NotFound();
-
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
-        user.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
-        return Ok(new { message = "Password updated." });
-    }
-
-    public record SetPasswordRequest(string Email, string NewPassword);
-#endif
 
     [Authorize(AuthenticationSchemes = "ApiKey")]
     [HttpPost("introspect")]

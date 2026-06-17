@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.Filters;
 using CentralAuth.Api.Services;
@@ -88,6 +89,22 @@ builder.Services.AddCors(opt =>
 
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<DynamicPermissionFilter>();
+
+// C3: Rate limiting for login endpoint
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                QueueLimit = 0,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+});
+
 builder.Services.AddControllers()
     .AddJsonOptions(opt =>
         opt.JsonSerializerOptions.DefaultIgnoreCondition =
@@ -113,6 +130,7 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.UseMiddleware<DynamicPermissionMiddleware>();
 app.MapControllers();
 app.MapGet("/health", () => new { status = "ok", service = "CentralAuth.Api", timestamp = DateTime.UtcNow }).AllowAnonymous();
