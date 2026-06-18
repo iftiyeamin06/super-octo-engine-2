@@ -16,7 +16,7 @@ namespace CentralAuth.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpService otpService, IEmailService emailService) : ControllerBase
+public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpService otpService, IEmailService emailService, ITokenService tokenService) : ControllerBase
 {
     [AllowAnonymous]
     [EnableRateLimiting("login")]
@@ -339,8 +339,11 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
             try
             {
                 var otp = await otpService.GenerateAndStoreAsync(user.Id, "EmailVerification", user.Email, ip);
-                await emailService.SendAsync(user.Email, "Verify your email address",
-                    $"<p>Your 6-digit verification code is: <strong>{otp}</strong></p><p>This code expires in 10 minutes.</p>");
+                var token = await tokenService.GenerateTokenAsync(user.Id, "EmailVerification", TimeSpan.FromHours(24), ip);
+                var frontendUrl = cfg["Frontend:BaseUrl"] ?? "http://localhost:5173";
+                var verifyLink = $"{frontendUrl}/verify-email?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
+                var html = EmailTemplates.GetVerificationEmail(user.FirstName, otp, verifyLink);
+                await emailService.SendAsync(user.Email, "Verify your email address", html);
             }
             catch (Exception ex)
             {
@@ -349,6 +352,98 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
         }
 
         return Ok(new { message = "If an account exists, a verification code has been sent." });
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpPost("send-verification-link")]
+    public async Task<IActionResult> SendVerificationLink([FromBody] SendVerificationLinkRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Email))
+            return Ok(new { message = "If an account exists, a verification link has been sent." });
+
+        var normalized = req.Email.ToUpperInvariant();
+        var user = await db.AppUsers.FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
+
+        if (user is not null && !user.IsEmailVerified)
+        {
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+            try
+            {
+                var otp = await otpService.GenerateAndStoreAsync(user.Id, "EmailVerification", user.Email, ip);
+                var token = await tokenService.GenerateTokenAsync(user.Id, "EmailVerification", TimeSpan.FromHours(24), ip);
+                var frontendUrl = cfg["Frontend:BaseUrl"] ?? "http://localhost:5173";
+                var verifyLink = $"{frontendUrl}/verify-email?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
+                var html = EmailTemplates.GetVerificationEmail(user.FirstName, otp, verifyLink);
+                await emailService.SendAsync(user.Email, "Verify your email address", html);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SendVerificationLink] Error: {ex.Message}");
+            }
+        }
+
+        return Ok(new { message = "If an account exists, a verification link has been sent." });
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpGet("verify-email-link")]
+    public async Task<IActionResult> VerifyEmailLink([FromQuery] string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return BadRequest(new { message = "Invalid verification link." });
+
+        var userId = await tokenService.ValidateTokenAsync(token, "EmailVerification");
+        if (userId is null)
+            return BadRequest(new { message = "Invalid or expired verification link." });
+
+        var user = await db.AppUsers
+            .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+            .FirstOrDefaultAsync(u => u.Id == userId.Value && u.IsActive);
+
+        if (user is null)
+            return BadRequest(new { message = "Invalid or expired verification link." });
+
+        user.IsEmailVerified = true;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        var roles = user.UserRoles.Where(ur => ur.Role is not null).Select(ur => ur.Role!.Name).ToList();
+        var permissions = user.UserRoles
+            .Where(ur => ur.Role is not null)
+            .SelectMany(ur => ur.Role!.RolePermissions)
+            .Where(rp => rp.IsActive && rp.Permission is not null)
+            .Select(rp => rp.Permission!.Code)
+            .Distinct()
+            .ToList();
+
+        var directPerms = await db.UserPermissions
+            .Where(up => up.AppUserId == user.Id && up.IsActive)
+            .Select(up => up.Permission.Code)
+            .Distinct()
+            .ToListAsync();
+        permissions.AddRange(directPerms);
+
+        var jwtToken = BuildToken(user.Id, user.Email, roles, permissions, true);
+        var expiry = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
+
+        db.AuditHistories.Add(new AuditHistory
+        {
+            ActionType = "EmailVerified", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+            AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            CreatedAt = DateTime.UtcNow, IsActive = true
+        });
+
+        await db.SaveChangesAsync();
+
+        return Ok(new LoginResponse(
+            jwtToken,
+            expiry,
+            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email,
+                user.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+                roles, user.ProfilePhotoStorageKey, true)
+        ));
     }
 
     [AllowAnonymous]
@@ -429,8 +524,11 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
             try
             {
                 var otp = await otpService.GenerateAndStoreAsync(user.Id, "PasswordReset", user.Email, ip);
-                await emailService.SendAsync(user.Email, "Your password reset code",
-                    $"<p>Your 6-digit reset code is: <strong>{otp}</strong></p><p>This code expires in 10 minutes.</p>");
+                var token = await tokenService.GenerateTokenAsync(user.Id, "PasswordReset", TimeSpan.FromHours(24), ip);
+                var frontendUrl = cfg["Frontend:BaseUrl"] ?? "http://localhost:5173";
+                var resetLink = $"{frontendUrl}/forgot-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
+                var html = EmailTemplates.GetPasswordResetEmail(user.FirstName, otp, resetLink);
+                await emailService.SendAsync(user.Email, "Reset your password", html);
             }
             catch (Exception ex)
             {
@@ -458,6 +556,50 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
         var verified = await otpService.VerifyAsync(user.Id, "PasswordReset", req.Otp);
         if (!verified)
             return BadRequest(new { message = "Invalid email or verification code." });
+
+        var validationError = ValidatePassword(req.NewPassword);
+        if (validationError is not null)
+            return BadRequest(new { message = validationError });
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword, workFactor: 12);
+        user.UpdatedAt = DateTime.UtcNow;
+
+        var activeSessions = await db.UserLoginSessions
+            .Where(s => s.AppUserId == user.Id && s.IsActive).ToListAsync();
+        foreach (var s in activeSessions)
+        {
+            s.IsActive = false;
+            s.EndedAtUtc = DateTime.UtcNow;
+            s.EndedReason = "PasswordReset";
+            s.UpdatedAt = DateTime.UtcNow;
+        }
+
+        db.AuditHistories.Add(new AuditHistory
+        {
+            ActionType = "PasswordReset", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+            AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            CreatedAt = DateTime.UtcNow, IsActive = true
+        });
+
+        await db.SaveChangesAsync();
+        return Ok(new { message = "Password has been reset successfully." });
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpPost("reset-password-link")]
+    public async Task<IActionResult> ResetPasswordLink([FromBody] ResetPasswordLinkRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Token) || string.IsNullOrWhiteSpace(req.NewPassword))
+            return BadRequest(new { message = "Invalid or expired reset link." });
+
+        var userId = await tokenService.ValidateTokenAsync(req.Token, "PasswordReset");
+        if (userId is null)
+            return BadRequest(new { message = "Invalid or expired reset link." });
+
+        var user = await db.AppUsers.FirstOrDefaultAsync(u => u.Id == userId.Value && u.IsActive);
+        if (user is null)
+            return BadRequest(new { message = "Invalid or expired reset link." });
 
         var validationError = ValidatePassword(req.NewPassword);
         if (validationError is not null)

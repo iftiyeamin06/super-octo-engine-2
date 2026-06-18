@@ -23,4 +23,7 @@ public record RefreshRequest(string RefreshToken);
 public record ForgotPasswordRequest(string Email);
 public record ResetPasswordRequest(string Email, string Otp, string NewPassword);
 public record SendVerificationRequest(string Email);
+public record SendVerificationLinkRequest(string Email);
 public record VerifyEmailRequest(string Email, string Otp);
+public record VerifyEmailLinkRequest(string Token);
+public record ResetPasswordLinkRequest(string Token, string NewPassword);

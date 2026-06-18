@@ -34,6 +34,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
     public DbSet<UserDatatablePreference> UserDatatablePreferences => Set<UserDatatablePreference>();
     public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
     public DbSet<UserApiRoute> UserApiRoutes => Set<UserApiRoute>();
+    public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -83,6 +84,9 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<TokenBlacklist>().HasIndex(e => e.TokenJti).IsUnique();
         mb.Entity<PasswordResetToken>().HasIndex(e => e.TokenHash).IsUnique();
         mb.Entity<OtpVerification>().HasIndex(e => new { e.AppUserId, e.Purpose, e.CreatedAt });
+        mb.Entity<EmailVerificationToken>().ToTable("auth_email_verification_tokens");
+        mb.Entity<EmailVerificationToken>().HasIndex(e => e.Token).IsUnique();
+        mb.Entity<EmailVerificationToken>().HasIndex(e => new { e.UserId, e.Purpose, e.CreatedAt });
         mb.Entity<Tenant>().HasIndex(e => e.Code).IsUnique();
 
         // Self-referential: Module.Parent
@@ -127,6 +131,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<TokenBlacklist>().HasOne(e => e.AppUser).WithMany().HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.SetNull);
         mb.Entity<PasswordResetToken>().HasOne(e => e.AppUser).WithMany().HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<OtpVerification>().HasOne(e => e.AppUser).WithMany().HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
+        mb.Entity<EmailVerificationToken>().HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
         mb.Entity<UserDatatablePreference>().HasOne(e => e.AppUser).WithMany().HasForeignKey(e => e.AppUserId).OnDelete(DeleteBehavior.Cascade);
 
         // UserPermission
@@ -165,7 +170,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
     {
         nameof(UserLoginSession), nameof(TokenBlacklist), nameof(PasswordResetToken),
         nameof(OtpVerification), nameof(AuditHistory),
-        nameof(UserDatatablePreference)
+        nameof(UserDatatablePreference), nameof(EmailVerificationToken)
     };
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

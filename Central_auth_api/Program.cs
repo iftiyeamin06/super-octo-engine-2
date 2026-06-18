@@ -23,6 +23,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IEmployeeIdGenerator, EmployeeIdGenerator>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddHostedService<TokenCleanupService>();
 
 var jwtCfg = builder.Configuration.GetSection("Jwt");
 var jwtKeyValue = jwtCfg["Key"];

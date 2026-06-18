@@ -17,7 +17,7 @@ export default function Header() {
   const page = titles[pathname] ?? { title: "CentralAuth", description: "" };
   const [showDropdown, setShowDropdown] = useState(false);
   const [showPerms, setShowPerms] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [, setUploading] = useState(false);
   const permissions = getPermissions();
   const session = getSession();
   const { theme, toggleTheme } = useTheme();

@@ -49,10 +49,14 @@ export const api = {
       req<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify(data) }),
     resetPassword: (data: { email: string; otp: string; newPassword: string }) =>
       req<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify(data) }),
+    resetPasswordLink: (data: { token: string; newPassword: string }) =>
+      req<{ message: string }>("/auth/reset-password-link", { method: "POST", body: JSON.stringify(data) }),
     sendVerification: (data: { email: string }) =>
       req<{ message: string }>("/auth/send-email-verification", { method: "POST", body: JSON.stringify(data) }),
     verifyEmail: (data: { email: string; otp: string }) =>
       req<{ accessToken: string; expiresAt: string; user: { id: number; fullName: string; email: string; tenantName?: string; roles: string[]; profilePhotoStorageKey?: string | null; emailVerified?: boolean } }>("/auth/verify-email", { method: "POST", body: JSON.stringify(data) }),
+    verifyEmailLink: (token: string) =>
+      req<{ accessToken: string; expiresAt: string; user: { id: number; fullName: string; email: string; tenantName?: string; roles: string[]; profilePhotoStorageKey?: string | null; emailVerified?: boolean } }>("/auth/verify-email-link?token=" + encodeURIComponent(token), { method: "GET" }),
   },
   dashboard: {
     stats:      () => req<DashboardStats>("/dashboard/stats"),

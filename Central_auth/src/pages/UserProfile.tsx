@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, User, Mail, Phone, Building2, Briefcase, Calendar, Clock,
-  ShieldCheck, KeyRound, Monitor, Globe, Activity, AlertTriangle,
+  ShieldCheck, Monitor, Activity, AlertTriangle,
 } from "lucide-react";
 import Badge from "../components/Badge";
 import { api, type UserProfile } from "../lib/api";
