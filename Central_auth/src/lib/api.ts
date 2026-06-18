@@ -116,6 +116,7 @@ export const api = {
     update: (id: number, data: ModuleSavePayload) => req<void>(`/modules/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     remove: (id: number) => req<void>(`/modules/${id}`, { method: "DELETE" }),
     accessible: () => req<ModuleAccessible[]>("/modules/accessible"),
+    permissionMapping: () => req<Record<number, number[]>>("/modules/permission-mapping"),
     permissions: (id: number) => req<number[]>(`/modules/${id}/permissions`),
     updatePermissions: (id: number, permissionIds: number[]) => req<void>(`/modules/${id}/permissions`, { method: "PUT", body: JSON.stringify({ permissionIds }) }),
     routes: {

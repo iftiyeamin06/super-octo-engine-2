@@ -42,6 +42,7 @@ export default function Roles() {
   const [allModules, setAllModules] = useState<ModuleListItem[]>([]);
   const [allRoutes, setAllRoutes] = useState<RouteListItem[]>([]);
   const [expandedModules, setExpandedModules] = useState<string[]>([]);
+  const [permMapping, setPermMapping] = useState<Record<number, number[]>>({});
 
   const [editingRole, setEditingRole] = useState<RoleDetail | null>(null);
 
@@ -59,10 +60,11 @@ export default function Roles() {
 
   useEffect(() => {
     loadRoles();
-    Promise.all([api.permissions.list(), api.modules.list(), api.routes.list()]).then(([perms, mods, routes]) => {
+    Promise.all([api.permissions.list(), api.modules.list(), api.routes.list(), api.modules.permissionMapping()]).then(([perms, mods, routes, mapping]) => {
       setAllPermissions(perms);
       setAllModules(mods);
       setAllRoutes(routes);
+      setPermMapping(mapping);
     }).catch(() => setLoadError("Failed to load permissions or modules"));
   }, []);
 
@@ -104,8 +106,8 @@ export default function Roles() {
     setExpandedGroups(g => g.includes(group) ? g.filter(x => x !== group) : [...g, group]);
   }
 
-  function toggleModulePerms(moduleName: string) {
-    const ids = allPermissions.filter(p => p.groupName === moduleName).map(p => p.id);
+  function toggleModulePerms(moduleId: number) {
+    const ids = permMapping[moduleId] ?? [];
     if (ids.length === 0) return;
     const allSelected = ids.every(id => selectedPerms.includes(id));
     setSelectedPerms(prev => allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]);
@@ -169,7 +171,7 @@ export default function Roles() {
 
   const allModuleNodes = allModules.map(m => {
     const routes = allRoutes.filter(r => r.moduleId === m.id && r.isActive);
-    const permIds = allPermissions.filter(p => p.groupName === m.name).map(p => p.id);
+    const permIds = permMapping[m.id] ?? [];
     return { module: m, routes, permIds };
   });
 
@@ -342,7 +344,7 @@ export default function Roles() {
                               </div>
                             );
                           })}
-                          {allPermissions.filter(p => p.groupName === module.name && !routePermIds.includes(p.id)).map(p => {
+                          {allPermissions.filter(p => permIds.includes(p.id) && !routePermIds.includes(p.id)).map(p => {
                             const has = selectedIds.includes(p.id);
                             return (
                               <div key={p.id} className={cn("flex items-center gap-3 p-2 rounded-lg",
@@ -413,7 +415,7 @@ export default function Roles() {
                               <span className="text-xs font-semibold text-foreground truncate">{module.name}</span>
                               <span className="text-xs text-muted-foreground flex-shrink-0">{selectedCount}/{allModulePermIds.length}</span>
                             </div>
-                            <button type="button" onClick={() => toggleModulePerms(module.name)}
+                            <button type="button" onClick={() => toggleModulePerms(module.id)}
                               className="text-xs text-primary hover:underline flex-shrink-0 ml-2">
                               {allSelected ? "Deselect all" : "Select all"}
                             </button>
@@ -437,7 +439,7 @@ export default function Roles() {
                                   </label>
                                 );
                               })}
-                              {allPermissions.filter(p => p.groupName === module.name && !routePermIds.includes(p.id)).map(p => {
+                              {allPermissions.filter(p => permIds.includes(p.id)).map(p => {
                                 const checked = selectedPerms.includes(p.id);
                                 return (
                                   <label key={p.id}
@@ -449,7 +451,7 @@ export default function Roles() {
                                   </label>
                                 );
                               })}
-                              {routes.length === 0 && allPermissions.filter(p => p.groupName === module.name && !routePermIds.includes(p.id)).length === 0 && (
+                              {routes.length === 0 && permIds.length === 0 && (
                                 <div className="text-xs text-muted-foreground py-2 text-center">No pages or permissions</div>
                               )}
                             </div>
