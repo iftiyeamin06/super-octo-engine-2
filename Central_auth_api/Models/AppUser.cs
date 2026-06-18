@@ -19,6 +19,7 @@ public class AppUser : BaseEntity
     public string? TwoFactorMethod { get; set; }
     public int FailedLoginAttempts { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public bool IsEmailVerified { get; set; } = true;
 
     public Department Department { get; set; } = null!;
     public Designation Designation { get; set; } = null!;

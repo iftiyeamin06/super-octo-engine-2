@@ -116,3 +116,8 @@ F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\Swashbuckle.AspNetCore.
 F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\Swashbuckle.AspNetCore.SwaggerGen.dll
 F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\Swashbuckle.AspNetCore.SwaggerUI.dll
 F:\super-octo-engine-2\Central_auth_api\obj\Debug\net8.0\CentralAuth.Api.sourcelink.json
+F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\BouncyCastle.Cryptography.dll
+F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\MailKit.dll
+F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\MimeKit.dll
+F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\System.Security.Cryptography.Pkcs.dll
+F:\super-octo-engine-2\Central_auth_api\bin\Debug\net8.0\runtimes\win\lib\net8.0\System.Security.Cryptography.Pkcs.dll

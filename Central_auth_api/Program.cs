@@ -21,6 +21,8 @@ builder.Services.AddDbContext<CentralAuthDbContext>(opt =>
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IEmployeeIdGenerator, EmployeeIdGenerator>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IOtpService, OtpService>();
 
 var jwtCfg = builder.Configuration.GetSection("Jwt");
 var jwtKeyValue = jwtCfg["Key"];

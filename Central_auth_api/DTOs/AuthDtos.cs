@@ -14,7 +14,13 @@ public record AuthUserDto(
     string Email,
     string? TenantName,
     IEnumerable<string> Roles,
-    string? ProfilePhotoStorageKey
+    string? ProfilePhotoStorageKey,
+    bool IsEmailVerified
 );
 
 public record RefreshRequest(string RefreshToken);
+
+public record ForgotPasswordRequest(string Email);
+public record ResetPasswordRequest(string Email, string Otp, string NewPassword);
+public record SendVerificationRequest(string Email);
+public record VerifyEmailRequest(string Email, string Otp);

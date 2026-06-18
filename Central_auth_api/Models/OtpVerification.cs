@@ -12,7 +12,6 @@ public class OtpVerification
     public DateTime? VerifiedAt { get; set; }
     public int FailedAttempts { get; set; }
     public string? IpAddress { get; set; }
-    public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public AppUser AppUser { get; set; } = null!;

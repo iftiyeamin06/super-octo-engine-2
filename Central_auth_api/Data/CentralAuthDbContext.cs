@@ -82,6 +82,7 @@ public class CentralAuthDbContext(DbContextOptions<CentralAuthDbContext> options
         mb.Entity<UserLoginSession>().HasIndex(e => e.SessionId).IsUnique();
         mb.Entity<TokenBlacklist>().HasIndex(e => e.TokenJti).IsUnique();
         mb.Entity<PasswordResetToken>().HasIndex(e => e.TokenHash).IsUnique();
+        mb.Entity<OtpVerification>().HasIndex(e => new { e.AppUserId, e.Purpose, e.CreatedAt });
         mb.Entity<Tenant>().HasIndex(e => e.Code).IsUnique();
 
         // Self-referential: Module.Parent

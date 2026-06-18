@@ -5,6 +5,7 @@ export interface AuthUser {
   tenantName?: string;
   roles: string[];
   profilePhotoStorageKey?: string | null;
+  emailVerified?: boolean;
 }
 
 export interface AuthState {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { KeyRound, Eye, EyeOff, Loader2 } from "lucide-react";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/auth";
@@ -24,7 +24,11 @@ export default function Login() {
         expiresAt: res.expiresAt,
         user: res.user,
       });
-      navigate("/dashboard", { replace: true });
+      if (res.user.emailVerified === false) {
+        navigate("/verify-email?email=" + encodeURIComponent(email), { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg.includes("401") || msg.includes("Unauthorized") ? "Invalid email or password." : msg);
@@ -99,6 +103,12 @@ export default function Login() {
               {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
+
+          <div className="mt-4 text-center">
+            <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+              Forgot password?
+            </Link>
+          </div>
         </div>
       </div>
     </div>

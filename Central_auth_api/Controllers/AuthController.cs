@@ -5,6 +5,7 @@ using System.Threading.RateLimiting;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.DTOs;
 using CentralAuth.Api.Models;
+using CentralAuth.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -15,7 +16,7 @@ namespace CentralAuth.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : ControllerBase
+public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpService otpService, IEmailService emailService) : ControllerBase
 {
     [AllowAnonymous]
     [EnableRateLimiting("login")]
@@ -103,7 +104,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
 
         permissions.AddRange(directPerms);
 
-        var token = BuildToken(user.Id, user.Email, roles, permissions);
+        var token = BuildToken(user.Id, user.Email, roles, permissions, user.IsEmailVerified);
         var expiry = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
 
         user.LastLoginAt = DateTime.UtcNow;
@@ -137,7 +138,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
         return Ok(new LoginResponse(
             token,
             expiry,
-            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email, user.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(), roles, user.ProfilePhotoStorageKey)
+            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email, user.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(), roles, user.ProfilePhotoStorageKey, user.IsEmailVerified)
         ));
     }
 
@@ -321,7 +322,185 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
     public record IntrospectResponse(bool Valid, long? UserId, string? Email, List<string>? Permissions, string? RequiredPermission, bool? HasPermission);
     public record CheckPermissionRequest(string Token, string PermissionCode);
 
-    private string BuildToken(long userId, string email, IEnumerable<string> roles, IEnumerable<string>? permissions = null)
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpPost("send-email-verification")]
+    public async Task<IActionResult> SendEmailVerification([FromBody] SendVerificationRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Email))
+            return Ok(new { message = "If an account exists, a verification code has been sent." });
+
+        var normalized = req.Email.ToUpperInvariant();
+        var user = await db.AppUsers.FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
+
+        if (user is not null && !user.IsEmailVerified)
+        {
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+            try
+            {
+                var otp = await otpService.GenerateAndStoreAsync(user.Id, "EmailVerification", user.Email, ip);
+                await emailService.SendAsync(user.Email, "Verify your email address",
+                    $"<p>Your 6-digit verification code is: <strong>{otp}</strong></p><p>This code expires in 10 minutes.</p>");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[EmailVerification] Error: {ex.Message}");
+            }
+        }
+
+        return Ok(new { message = "If an account exists, a verification code has been sent." });
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpPost("verify-email")]
+    public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Otp))
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        var normalized = req.Email.ToUpperInvariant();
+        var user = await db.AppUsers
+            .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+            .FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
+
+        if (user is null)
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        var verified = await otpService.VerifyAsync(user.Id, "EmailVerification", req.Otp);
+        if (!verified)
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        user.IsEmailVerified = true;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        var roles = user.UserRoles.Where(ur => ur.Role is not null).Select(ur => ur.Role!.Name).ToList();
+        var permissions = user.UserRoles
+            .Where(ur => ur.Role is not null)
+            .SelectMany(ur => ur.Role!.RolePermissions)
+            .Where(rp => rp.IsActive && rp.Permission is not null)
+            .Select(rp => rp.Permission!.Code)
+            .Distinct()
+            .ToList();
+
+        var directPerms = await db.UserPermissions
+            .Where(up => up.AppUserId == user.Id && up.IsActive)
+            .Select(up => up.Permission.Code)
+            .Distinct()
+            .ToListAsync();
+        permissions.AddRange(directPerms);
+
+        var token = BuildToken(user.Id, user.Email, roles, permissions, true);
+        var expiry = DateTime.UtcNow.AddMinutes(double.Parse(cfg["Jwt:ExpiryMinutes"] ?? "60"));
+
+        db.AuditHistories.Add(new AuditHistory
+        {
+            ActionType = "EmailVerified", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+            AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            CreatedAt = DateTime.UtcNow, IsActive = true
+        });
+
+        await db.SaveChangesAsync();
+
+        return Ok(new LoginResponse(
+            token,
+            expiry,
+            new AuthUserDto(user.Id, $"{user.FirstName} {user.LastName}".Trim(), user.Email,
+                user.TenantUsers.Where(tu => tu.IsActive).Select(tu => tu.Tenant!.Name).FirstOrDefault(),
+                roles, user.ProfilePhotoStorageKey, true)
+        ));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Email))
+            return Ok(new { message = "If an account exists, a reset code has been sent." });
+
+        var normalized = req.Email.ToUpperInvariant();
+        var user = await db.AppUsers.FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
+
+        if (user is not null)
+        {
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+            try
+            {
+                var otp = await otpService.GenerateAndStoreAsync(user.Id, "PasswordReset", user.Email, ip);
+                await emailService.SendAsync(user.Email, "Your password reset code",
+                    $"<p>Your 6-digit reset code is: <strong>{otp}</strong></p><p>This code expires in 10 minutes.</p>");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ForgotPassword] Error: {ex.Message}");
+            }
+        }
+
+        return Ok(new { message = "If an account exists, a reset code has been sent." });
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Otp) || string.IsNullOrWhiteSpace(req.NewPassword))
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        var normalized = req.Email.ToUpperInvariant();
+        var user = await db.AppUsers.FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
+
+        if (user is null)
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        var verified = await otpService.VerifyAsync(user.Id, "PasswordReset", req.Otp);
+        if (!verified)
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        var validationError = ValidatePassword(req.NewPassword);
+        if (validationError is not null)
+            return BadRequest(new { message = validationError });
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword, workFactor: 12);
+        user.UpdatedAt = DateTime.UtcNow;
+
+        var activeSessions = await db.UserLoginSessions
+            .Where(s => s.AppUserId == user.Id && s.IsActive).ToListAsync();
+        foreach (var s in activeSessions)
+        {
+            s.IsActive = false;
+            s.EndedAtUtc = DateTime.UtcNow;
+            s.EndedReason = "PasswordReset";
+            s.UpdatedAt = DateTime.UtcNow;
+        }
+
+        db.AuditHistories.Add(new AuditHistory
+        {
+            ActionType = "PasswordReset", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+            AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            CreatedAt = DateTime.UtcNow, IsActive = true
+        });
+
+        await db.SaveChangesAsync();
+        return Ok(new { message = "Password has been reset successfully." });
+    }
+
+    private string? ValidatePassword(string password)
+    {
+        if (password.Length < 8) return "Password must be at least 8 characters.";
+        if (password.Length > 128) return "Password must not exceed 128 characters.";
+        int classes = 0;
+        if (password.Any(char.IsUpper)) classes++;
+        if (password.Any(char.IsLower)) classes++;
+        if (password.Any(char.IsDigit)) classes++;
+        if (password.Any(c => !char.IsLetterOrDigit(c))) classes++;
+        if (classes < 3) return "Password must include at least 3 of: uppercase, lowercase, digit, special character.";
+        return null;
+    }
+
+    private string BuildToken(long userId, string email, IEnumerable<string> roles, IEnumerable<string>? permissions = null, bool emailVerified = true)
     {
         var jwtCfg = cfg.GetSection("Jwt");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCfg["Key"]!));
@@ -332,6 +511,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg) : Contr
             new(JwtRegisteredClaimNames.Sub, userId.ToString()),
             new(JwtRegisteredClaimNames.Email, email),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("email_verified", emailVerified.ToString().ToLowerInvariant()),
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
         if (permissions is not null)

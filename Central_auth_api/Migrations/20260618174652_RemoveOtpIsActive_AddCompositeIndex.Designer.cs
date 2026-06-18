@@ -3,6 +3,7 @@ using System;
 using CentralAuth.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CentralAuth.Api.Migrations
 {
     [DbContext(typeof(CentralAuthDbContext))]
-    partial class CentralAuthDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260618174652_RemoveOtpIsActive_AddCompositeIndex")]
+    partial class RemoveOtpIsActive_AddCompositeIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -98,9 +101,6 @@ namespace CentralAuth.Api.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<bool>("IsActive")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("IsEmailVerified")
                         .HasColumnType("tinyint(1)");
 
                     b.Property<bool>("IsLocked")
@@ -431,6 +431,8 @@ namespace CentralAuth.Api.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AppUserId");
 
                     b.HasIndex("AppUserId", "Purpose", "CreatedAt");
 
