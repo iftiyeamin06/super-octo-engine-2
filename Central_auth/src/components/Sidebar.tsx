@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, ShieldCheck, Building2, Monitor, ClipboardList, KeyRound, Building, Briefcase, Boxes, AppWindow, BugPlay, Shield, UserCog } from "lucide-react";
+import { LayoutDashboard, Users, ShieldCheck, Building2, Monitor, ClipboardList, KeyRound, Building, Briefcase, Boxes, AppWindow, BugPlay, Shield, UserCog, ShieldAlert } from "lucide-react";
 import { cn } from "../lib/utils";
 import { api, type ModuleAccessible } from "../lib/api";
 
@@ -29,6 +29,7 @@ const navGroups = [
     items: [
       { to: "/sessions",      icon: Monitor,       label: "Sessions" },
       { to: "/audit",         icon: ClipboardList, label: "Audit Logs" },
+      { to: "/security-log",  icon: ShieldAlert,   label: "Security Log" },
       { to: "/access-tester", icon: BugPlay,       label: "Access Tester" },
     ],
   },

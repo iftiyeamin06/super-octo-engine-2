@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using CentralAuth.Api.Data;
 using CentralAuth.Api.DTOs;
@@ -344,6 +345,15 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
                 var verifyLink = $"{frontendUrl}/verify-email?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
                 var html = EmailTemplates.GetVerificationEmail(user.FirstName, otp, verifyLink);
                 await emailService.SendAsync(user.Email, "Verify your email address", html);
+
+                db.AuditHistories.Add(new AuditHistory
+                {
+                    ActionType = "EmailVerificationRequested", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                    AppUserId = user.Id, IpAddress = ip,
+                    NewValues = JsonSerializer.Serialize(new { email = user.Email, method = "otp" }),
+                    CreatedAt = DateTime.UtcNow, IsActive = true
+                });
+                await db.SaveChangesAsync();
             }
             catch (Exception ex)
             {
@@ -376,6 +386,15 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
                 var verifyLink = $"{frontendUrl}/verify-email?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
                 var html = EmailTemplates.GetVerificationEmail(user.FirstName, otp, verifyLink);
                 await emailService.SendAsync(user.Email, "Verify your email address", html);
+
+                db.AuditHistories.Add(new AuditHistory
+                {
+                    ActionType = "EmailVerificationRequested", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                    AppUserId = user.Id, IpAddress = ip,
+                    NewValues = JsonSerializer.Serialize(new { email = user.Email, method = "magic_link" }),
+                    CreatedAt = DateTime.UtcNow, IsActive = true
+                });
+                await db.SaveChangesAsync();
             }
             catch (Exception ex)
             {
@@ -396,7 +415,17 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
 
         var userId = await tokenService.ValidateTokenAsync(token, "EmailVerification");
         if (userId is null)
+        {
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "EmailVerificationFailed", EntityName = "AppUser", EntityKey = "",
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                NewValues = JsonSerializer.Serialize(new { method = "magic_link", reason = "invalid_token" }),
+                CreatedAt = DateTime.UtcNow, IsActive = true
+            });
+            await db.SaveChangesAsync();
             return BadRequest(new { message = "Invalid or expired verification link." });
+        }
 
         var user = await db.AppUsers
             .Include(u => u.TenantUsers).ThenInclude(tu => tu.Tenant)
@@ -432,6 +461,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
         {
             ActionType = "EmailVerified", EntityName = "AppUser", EntityKey = user.Id.ToString(),
             AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            NewValues = JsonSerializer.Serialize(new { method = "magic_link" }),
             CreatedAt = DateTime.UtcNow, IsActive = true
         });
 
@@ -465,7 +495,17 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
 
         var verified = await otpService.VerifyAsync(user.Id, "EmailVerification", req.Otp);
         if (!verified)
+        {
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "EmailVerificationFailed", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                NewValues = JsonSerializer.Serialize(new { method = "otp", reason = "invalid_otp" }),
+                CreatedAt = DateTime.UtcNow, IsActive = true
+            });
+            await db.SaveChangesAsync();
             return BadRequest(new { message = "Invalid email or verification code." });
+        }
 
         user.IsEmailVerified = true;
         user.UpdatedAt = DateTime.UtcNow;
@@ -493,6 +533,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
         {
             ActionType = "EmailVerified", EntityName = "AppUser", EntityKey = user.Id.ToString(),
             AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            NewValues = JsonSerializer.Serialize(new { method = "otp" }),
             CreatedAt = DateTime.UtcNow, IsActive = true
         });
 
@@ -529,6 +570,15 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
                 var resetLink = $"{frontendUrl}/forgot-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
                 var html = EmailTemplates.GetPasswordResetEmail(user.FirstName, otp, resetLink);
                 await emailService.SendAsync(user.Email, "Reset your password", html);
+
+                db.AuditHistories.Add(new AuditHistory
+                {
+                    ActionType = "ForgotPassword", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                    AppUserId = user.Id, IpAddress = ip,
+                    NewValues = JsonSerializer.Serialize(new { email = user.Email, method = "requested" }),
+                    CreatedAt = DateTime.UtcNow, IsActive = true
+                });
+                await db.SaveChangesAsync();
             }
             catch (Exception ex)
             {
@@ -555,7 +605,17 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
 
         var verified = await otpService.VerifyAsync(user.Id, "PasswordReset", req.Otp);
         if (!verified)
+        {
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "PasswordResetFailed", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                NewValues = JsonSerializer.Serialize(new { method = "otp", reason = "invalid_otp" }),
+                CreatedAt = DateTime.UtcNow, IsActive = true
+            });
+            await db.SaveChangesAsync();
             return BadRequest(new { message = "Invalid email or verification code." });
+        }
 
         var validationError = ValidatePassword(req.NewPassword);
         if (validationError is not null)
@@ -578,6 +638,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
         {
             ActionType = "PasswordReset", EntityName = "AppUser", EntityKey = user.Id.ToString(),
             AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            NewValues = JsonSerializer.Serialize(new { method = "otp" }),
             CreatedAt = DateTime.UtcNow, IsActive = true
         });
 
@@ -595,7 +656,17 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
 
         var userId = await tokenService.ValidateTokenAsync(req.Token, "PasswordReset");
         if (userId is null)
+        {
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "PasswordResetFailed", EntityName = "AppUser", EntityKey = "",
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                NewValues = JsonSerializer.Serialize(new { method = "magic_link", reason = "invalid_token" }),
+                CreatedAt = DateTime.UtcNow, IsActive = true
+            });
+            await db.SaveChangesAsync();
             return BadRequest(new { message = "Invalid or expired reset link." });
+        }
 
         var user = await db.AppUsers.FirstOrDefaultAsync(u => u.Id == userId.Value && u.IsActive);
         if (user is null)
@@ -622,6 +693,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
         {
             ActionType = "PasswordReset", EntityName = "AppUser", EntityKey = user.Id.ToString(),
             AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            NewValues = JsonSerializer.Serialize(new { method = "magic_link" }),
             CreatedAt = DateTime.UtcNow, IsActive = true
         });
 

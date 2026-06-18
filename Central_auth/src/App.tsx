@@ -12,6 +12,7 @@ import Departments from "./pages/Departments";
 import Designations from "./pages/Designations";
 import Sessions from "./pages/Sessions";
 import AuditLogs from "./pages/AuditLogs";
+import SecurityLog from "./pages/SecurityLog";
 import Modules from "./pages/Modules";
 import ModulePage from "./pages/ModulePage";
 import AccessTester from "./pages/AccessTester";
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="designations" element={<Designations />} />
             <Route path="sessions" element={<Sessions />} />
             <Route path="audit" element={<AuditLogs />} />
+            <Route path="security-log" element={<SecurityLog />} />
             <Route path="Modules" element={<Modules />} />
             <Route path="apps/:moduleId" element={<ModulePage />} />
             <Route path="access-tester" element={<AccessTester />} />

@@ -178,7 +178,7 @@ export interface Module { id: number; name: string; code: string; route: string;
 export interface TenantListItem { id: number; name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string; isActive: boolean; createdAt: string; userCount: number; }
 export interface TenantPayload { name: string; code: string; description?: string; contactEmail?: string; logoUrl?: string; subscriptionPlan?: string; subscriptionExpiresAt?: string | null; isActive: boolean; }
 export interface Session { id: number; sessionId: string; appUserId: number; userEmail: string; deviceId?: string; ipAddress?: string; userAgent?: string; loginAtUtc: string; lastSeenAtUtc: string; expiresAtUtc: string; endedAtUtc?: string; isActive: boolean; }
-export interface AuditEntry { id: number; actionType: string; entityName: string; entityKey: string; userEmail?: string; ipAddress?: string; createdAt: string; }
+export interface AuditEntry { id: number; actionType: string; entityName: string; entityKey: string; newValues?: string; userEmail?: string; ipAddress?: string; createdAt: string; }
 export interface ModuleListItem { id: number; name: string; code: string; route: string; parentId?: number | null; isActive: boolean; createdAt: string; updatedAt?: string | null; }
 export interface ModuleDetail { id: number; name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
 export interface ModuleSavePayload { name: string; code: string; parentId?: number | null; sortOrder: number; icon?: string | null; route: string; isActive: boolean; }
