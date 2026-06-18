@@ -41,6 +41,7 @@ CREATE TABLE `auth_appusers` (
   `TwoFactorMethod` varchar(20) DEFAULT NULL,
   `FailedLoginAttempts` int NOT NULL,
   `LastLoginAt` datetime(6) DEFAULT NULL,
+  `IsEmailVerified` tinyint(1) NOT NULL DEFAULT '1',
   `CreatedAt` datetime(6) NOT NULL,
   `UpdatedAt` datetime(6) DEFAULT NULL,
   `CreatedBy` int DEFAULT NULL,
@@ -24966,6 +24967,26 @@ insert  into `auth_userroles`(`Id`,`AppUserId`,`RoleId`,`IsActive`,`CreatedAt`,`
 (20,18,7,0,'2026-05-19 20:33:15.000000','2026-05-19 21:22:43.309288',NULL,18),
 (21,19,7,1,'2026-05-19 20:33:15.000000','2026-05-19 20:33:15.000000',NULL,NULL),
 (22,20,7,1,'2026-05-19 20:33:15.000000','2026-05-19 20:33:15.000000',NULL,NULL);
+
+/*Table structure for table `auth_email_verification_tokens` */
+
+DROP TABLE IF EXISTS `auth_email_verification_tokens`;
+
+CREATE TABLE `auth_email_verification_tokens` (
+  `Id` bigint NOT NULL AUTO_INCREMENT,
+  `UserId` bigint NOT NULL,
+  `Token` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  `Purpose` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  `ExpiresAt` datetime(6) NOT NULL,
+  `IsUsed` tinyint(1) NOT NULL DEFAULT '0',
+  `UsedAt` datetime(6) DEFAULT NULL,
+  `IpAddress` longtext CHARACTER SET utf8mb4,
+  `CreatedAt` datetime(6) NOT NULL,
+  PRIMARY KEY (`Id`),
+  UNIQUE KEY `IX_auth_email_verification_tokens_Token` (`Token`),
+  KEY `IX_auth_email_verification_tokens_UserId_Purpose_CreatedAt` (`UserId`,`Purpose`,`CreatedAt`),
+  CONSTRAINT `FK_auth_email_verification_tokens_auth_appusers_UserId` FOREIGN KEY (`UserId`) REFERENCES `auth_appusers` (`Id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
 /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;

@@ -32,8 +32,9 @@ super-octo-engine-2/
 │   ├── Models/                # 26 EF Core entities
 │   ├── DTOs/                  # 16+ request/response DTOs
 │   ├── Filters/               # DynamicPermissionMiddleware + Filter
-│   ├── Data/                  # DbContext + Migrations (9)
-│   ├── Services/              # EmployeeIdGenerator
+│   ├── Data/                  # DbContext + Migrations (10)
+│   ├── Middleware/             # SessionActivityMiddleware, TokenCleanupService
+│   ├── Services/              # EmailService, OtpService, TokenService, EmailTemplates, EmployeeIdGenerator
 │   └── Program.cs             # DI, middleware pipeline, CORS, Swagger, Rate Limiting
 │
 ├── Central_auth/              # React 19 + Vite 8 frontend
@@ -82,12 +83,12 @@ Central_auth_api/
 │   ├── UserClaim.cs, RoleClaim.cs      # Custom claims storage
 │   ├── UserLoginSession.cs             # Active session tracking
 │   ├── TokenBlacklist.cs               # JWT JTI-based revocation
-│   ├── PasswordResetToken.cs, OtpVerification.cs  # Auth infrastructure
+│   ├── PasswordResetToken.cs, OtpVerification.cs, EmailVerificationToken.cs  # Auth infrastructure
 │   ├── AuditHistory.cs                 # Auto-logged entity changes
 │   └── UserDatatablePreference.cs       # UI state persistence
 │
 ├── DTOs/
-│   ├── AuthDtos.cs                      # LoginRequest, LoginResponse, RefreshRequest
+│   ├── AuthDtos.cs                      # LoginRequest, LoginResponse, RefreshRequest, ForgotPasswordRequest, VerifyEmailRequest, SendVerificationLinkRequest, ResetPasswordLinkRequest
 │   ├── UserDtos.cs                      # UserListDto, Create/Update, Role/Module/Route update DTOs
 │   ├── UserProfileDtos.cs               # UserProfileDto, RoleSummary, PermissionSummary, SessionSummary, AuditSummary
 │   ├── RoleDtos.cs                      # RoleListDto, RoleDetailDto, PermissionDto, Module DTOs
@@ -97,7 +98,7 @@ Central_auth_api/
 │   └── PagedResult.cs                   # Generic paged result wrapper
 │
 ├── Controllers/
-│   ├── AuthController.cs                # POST /api/auth/login (rate-limited), logout (JWT blacklist), introspect, check-permission
+│   ├── AuthController.cs                # POST /api/auth/login (rate-limited), logout (JWT blacklist), introspect, check-permission, forgot-password, reset-password, send-email-verification, verify-email, send-verification-link, verify-email-link (magic link), reset-password-link
 │   ├── UsersController.cs               # GET/POST/PUT /api/users, roles/modules/routes endpoints, lock/unlock, profile, photo upload
 │   ├── RolesController.cs               # CRUD /api/roles, soft-delete
 │   ├── PermissionsController.cs         # CRUD /api/permissions, GET /groups
@@ -118,10 +119,18 @@ Central_auth_api/
 │   └── DynamicPermissionFilter.cs      # IAsyncAuthorizationFilter (redundant safety layer)
 │
 ├── Data/
-│   └── CentralAuthDbContext.cs          # 25 DbSets, audit override in SaveChangesAsync
+│   └── CentralAuthDbContext.cs          # 26 DbSets, audit override in SaveChangesAsync
 │
-├── Migrations/                          # 9 migrations (Initial → AddUserApiRouteTable)
+├── Middleware/
+│   ├── SessionActivityMiddleware.cs     # Sliding session expiration (30s throttle)
+│   └── TokenCleanupService.cs          # Background service: clean expired tokens every 24h
+│
+├── Migrations/                          # 10 migrations (Initial → AddEmailVerificationTokens)
 └── Services/
+    ├── EmailService.cs                  # MailKit SMTP (SecureSocketOptions.Auto)
+    ├── OtpService.cs                    # OTP generate/verify, BCrypt WF6, rate limiting
+    ├── TokenService.cs                  # Magic link token generate/validate/cleanup
+    ├── EmailTemplates.cs                # Static HTML templates (verification, password reset)
     └── EmployeeIdGenerator.cs           # Per-tenant serial ID (SELECT...FOR UPDATE)
 ```
 
@@ -131,8 +140,10 @@ Central_auth_api/
 Central_auth/src/
 ├── App.tsx                              # BrowserRouter + ProtectedRoute wrapper
 │
-├── pages/                              # 15 page components
-│   ├── Login.tsx                        # Email/password → JWT → localStorage
+├── pages/                              # 17 page components
+│   ├── Login.tsx                        # Email/password → JWT → localStorage, redirect unverified to /verify-email
+│   ├── ForgotPassword.tsx               # 2-step: email → OTP, or magic link token → new password form
+│   ├── VerifyEmail.tsx                  # Auto-sends OTP on mount, handles ?token= magic link, OTP fallback
 │   ├── Dashboard.tsx                    # Stats cards, recent users, audit feed
 │   ├── Users.tsx                        # User CRUD table (no role/permission assignment)
 │   ├── Roles.tsx                        # Role CRUD + module→route permission tree
@@ -170,7 +181,7 @@ Central_auth/src/
 
 ## 3. Database Schema & Entity Relationships
 
-### 3.1 Table Inventory (25 tables)
+### 3.1 Table Inventory (26 tables)
 
 | # | Table | Entity | Domain | Extends BaseEntity |
 |---|-------|--------|--------|-------------------|
@@ -187,18 +198,19 @@ Central_auth/src/
 | 11 | `auth_token_blacklist` | TokenBlacklist | User | No |
 | 12 | `auth_password_reset_tokens` | PasswordResetToken | User | No |
 | 13 | `auth_otp_verifications` | OtpVerification | User | No |
-| 14 | `auth_user_datatable_preferences` | UserDatatablePreference | User | No |
-| 15 | `auth_permissions` | Permission | Auth | Yes |
-| 16 | `auth_rolepermissions` | RolePermission | Auth (junction) | Yes |
-| 17 | `auth_userpermissions` | UserPermission | Auth (junction) | Yes |
-| 18 | `auth_modules` | Module | Navigation | Yes |
-| 19 | `auth_pages` | Page | Navigation | Yes |
-| 20 | `auth_module_permissions` | ModulePermission | Navigation (junction) | Yes |
-| 21 | `auth_usermoduleaccesses` | UserModuleAccess | Navigation (junction) | Yes |
-| 22 | `auth_userpageaccesses` | UserPageAccess | Navigation (junction) | Yes |
-| 23 | `auth_api_service_routes` | ApiServiceRoute | API Routes | Yes |
-| 24 | `auth_user_api_routes` | UserApiRoute | API Routes (junction) | Yes |
-| 25 | `auth_audithistories` | AuditHistory | Audit | No |
+| 14 | `auth_email_verification_tokens` | EmailVerificationToken | User | No |
+| 15 | `auth_user_datatable_preferences` | UserDatatablePreference | User | No |
+| 16 | `auth_permissions` | Permission | Auth | Yes |
+| 17 | `auth_rolepermissions` | RolePermission | Auth (junction) | Yes |
+| 18 | `auth_userpermissions` | UserPermission | Auth (junction) | Yes |
+| 19 | `auth_modules` | Module | Navigation | Yes |
+| 20 | `auth_pages` | Page | Navigation | Yes |
+| 21 | `auth_module_permissions` | ModulePermission | Navigation (junction) | Yes |
+| 22 | `auth_usermoduleaccesses` | UserModuleAccess | Navigation (junction) | Yes |
+| 23 | `auth_userpageaccesses` | UserPageAccess | Navigation (junction) | Yes |
+| 24 | `auth_api_service_routes` | ApiServiceRoute | API Routes | Yes |
+| 25 | `auth_user_api_routes` | UserApiRoute | API Routes (junction) | Yes |
+| 26 | `auth_audithistories` | AuditHistory | Audit | No |
 
 ### 3.2 Entity Relationship Diagram
 
@@ -222,6 +234,7 @@ auth_appusers
 ├──< auth_token_blacklist    (AppUserId FK, SetNull)
 ├──< auth_password_reset_tokens  (AppUserId FK, Cascade)
 ├──< auth_otp_verifications  (AppUserId FK, Cascade)
+├──< auth_email_verification_tokens (UserId FK, Cascade)
 ├──< auth_user_datatable_preferences (AppUserId FK, Cascade)
 ├──< auth_usermoduleaccesses (AppUserId FK, Cascade)
 ├──< auth_userpageaccesses   (AppUserId FK, Cascade)
@@ -401,17 +414,18 @@ Vite proxy ────────────────►  │
                               │
                               ├─ HMAC-SHA256 sign with Jwt:Key
                               │
-                              │  ╔═══════════════════════════════════╗
-                              │  ║  JWT Payload (decoded):          ║
-                              │  ║  {                               ║
-                              │  ║    "sub": "19",                  ║
-                              │  ║    "email": "inv@test.com",     ║
-                              │  ║    "role": ["Inventory Manager"],║
-                              │  ║    "permission": [               ║
-                              │  ║      "Inventory_FullAccess"     ║
-                              │  ║    ]                            ║
-                              │  ║  }                               ║
-                              │  ╚═══════════════════════════════════╝
+                               │  ╔═══════════════════════════════════╗
+                               │  ║  JWT Payload (decoded):          ║
+                               │  ║  {                               ║
+                               │  ║    "sub": "19",                  ║
+                               │  ║    "email": "inv@test.com",     ║
+                               │  ║    "email_verified": true,      ║
+                               │  ║    "role": ["Inventory Manager"],║
+                               │  ║    "permission": [               ║
+                               │  ║      "Inventory_FullAccess"     ║
+                               │  ║    ]                            ║
+                               │  ║  }                               ║
+                               │  ╚═══════════════════════════════════╝
                               │
                               ├─ Reset user state:
                               │    FailedLoginAttempts = 0
@@ -1004,6 +1018,137 @@ Lockout:
   - FailedLoginAttempts reset on successful login or auto-unlock
 ```
 
+### Email Verification (OTP + Magic Link Hybrid)
+
+```
+POST /api/auth/send-email-verification   (or /send-verification-link)
+  │
+  ├─ [AllowAnonymous], [EnableRateLimiting("login")]
+  ├─ Check user exists (generic response for security)
+  ├─ If user exists AND not verified:
+  │    ├─ Generate 6-digit OTP via OtpService (BCrypt WF6, 10min expiry)
+  │    ├─ Generate magic link token via TokenService (24h expiry, URL-safe base64)
+  │    ├─ Build verification URL: {Frontend:BaseUrl}/verify-email?token={token}&email={email}
+  │    └─ Send hybrid email (EmailTemplates.GetVerificationEmail):
+  │         ┌─────────────────────────────────────┐
+  │         │  [Verify Email Address] ← button    │  ← Primary CTA (magic link)
+  │         │  ───────────────────── divider       │
+  │         │  Or enter this code manually:        │
+  │         │  [  123456  ] ← OTP input            │  ← Fallback (OTP)
+  │         └─────────────────────────────────────┘
+  ├─ Always returns generic { message } (prevents email enumeration)
+  │
+VerifyEmail.tsx
+  ├─ On mount: check for ?token= parameter
+  │    ├─ If token present → call GET /api/auth/verify-email-link?token=...
+  │    │    ├─ Success → saveSession() → redirect to /dashboard
+  │    │    └─ Error → show amber warning + fallback to OTP form
+  │    └─ If no token → auto-send OTP, show 6-digit input form
+  └─ Manual OTP flow: POST /api/auth/verify-email with { email, otp }
+
+GET /api/auth/verify-email-link?token={token}
+  ├─ [AllowAnonymous], [EnableRateLimiting("login")]
+  ├─ Validate token via TokenService (check expiry, not used)
+  ├─ Set user.IsEmailVerified = true
+  ├─ Build JWT with email_verified = true
+  ├─ Audit: "EmailVerified"
+  └─ Return LoginResponse (fresh JWT)
+```
+
+### Forgot Password (OTP + Magic Link Hybrid)
+
+```
+POST /api/auth/forgot-password
+  │
+  ├─ [AllowAnonymous], [EnableRateLimiting("login")]
+  ├─ Check user exists (generic response for security)
+  ├─ If user exists:
+  │    ├─ Generate 6-digit OTP via OtpService (BCrypt WF6, 10min expiry)
+  │    ├─ Generate magic link token via TokenService (24h expiry)
+  │    ├─ Build reset URL: {Frontend:BaseUrl}/forgot-password?token={token}&email={email}
+  │    └─ Send hybrid email (EmailTemplates.GetPasswordResetEmail):
+  │         ┌─────────────────────────────────────┐
+  │         │  [Reset Password] ← button          │  ← Primary CTA (magic link)
+  │         │  ───────────────────── divider       │
+  │         │  Or enter this code manually:        │
+  │         │  [  123456  ] ← OTP input            │  ← Fallback (OTP)
+  │         └─────────────────────────────────────┘
+  ├─ Always returns generic { message }
+  │
+ForgotPassword.tsx
+  ├─ On mount: check for ?token= parameter
+  │    ├─ If token present → show "Set new password" form (no OTP needed)
+  │    │    └─ Submit → POST /api/auth/reset-password-link with { token, newPassword }
+  │    └─ If no token → show email input form → submit → show OTP + password form
+  └─ Manual OTP flow: POST /api/auth/reset-password with { email, otp, newPassword }
+
+POST /api/auth/reset-password-link
+  ├─ Validate token via TokenService
+  ├─ Validate password (8+ chars, 3 of 4 classes)
+  ├─ Hash password (BCrypt WF12)
+  ├─ Revoke all active sessions (EndedReason = "PasswordReset")
+  ├─ Audit: "PasswordReset"
+  └─ Return success
+
+POST /api/auth/reset-password (existing OTP-based flow)
+  ├─ Same as above but validates OTP instead of token
+```
+
+### Token Management
+
+```
+TokenService (ITokenService)
+  ├─ GenerateTokenAsync(userId, purpose, expiry, ip):
+  │    ├─ Token = Convert.ToBase64String(Guid.NewGuid().ToByteArray())
+  │    │         .Replace("+", "-").Replace("/", "_").TrimEnd('=')
+  │    ├─ Store in auth_email_verification_tokens:
+  │    │    UserId, Token, Purpose, ExpiresAt, IsUsed, IpAddress, CreatedAt
+  │    └─ Return raw token
+  │
+  ├─ ValidateTokenAsync(token, purpose):
+  │    ├─ Find by Token + Purpose
+  │    ├─ Check: not null, not used, not expired
+  │    ├─ Mark as used (IsUsed = true, UsedAt = UtcNow)
+  │    └─ Return UserId or null
+  │
+  └─ CleanExpiredTokensAsync():
+       └─ Remove tokens older than 7 days
+
+TokenCleanupService (BackgroundService)
+  └─ Runs every 24 hours
+       └─ Calls CleanExpiredTokensAsync()
+
+Tables:
+  auth_email_verification_tokens (standalone, no BaseEntity):
+    ├─ Id (long, PK)
+    ├─ UserId (long, FK → auth_appusers, Cascade)
+    ├─ Token (varchar(255), unique index)
+    ├─ Purpose (varchar(255), indexed with UserId + CreatedAt)
+    ├─ ExpiresAt (datetime)
+    ├─ IsUsed (bool, default false)
+    ├─ UsedAt (datetime, nullable)
+    ├─ IpAddress (longtext, nullable)
+    └─ CreatedAt (datetime)
+```
+
+### SMTP Configuration
+
+```
+appsettings.json → Smtp section:
+  Host: smtp.gmail.com
+  Port: 587
+  User: (Gmail address)
+  Password: (App password)
+  From: (Must match User for Gmail)
+  FromName: "Central Auth"
+
+MailKit SecureSocketOptions.Auto (not StartTls)
+  └─ Gmail requires Auto; StartTls causes "Username and Password not accepted" 535 error
+
+appsettings.json → Frontend:BaseUrl:
+  └─ Used to build magic link URLs in emails
+```
+
 ---
 
 ## 13. User Profile System
@@ -1024,7 +1169,7 @@ UserProfileDto(
     // User info
     Id, FirstName, LastName, Email, UserName, PhoneNumber,
     EmployeeId, ProfilePhotoStorageKey, IsActive, IsLocked, TwoFactorEnabled,
-    FailedLoginAttempts, LastLoginAt, CreatedAt, UpdatedAt,
+    FailedLoginAttempts, LastLoginAt, CreatedAt, UpdatedAt, IsEmailVerified,
     // Related
     TenantId, TenantName, DepartmentId, DepartmentName,
     DesignationId, DesignationName,
@@ -1098,6 +1243,7 @@ interface UserProfile {
   isActive: boolean; isLocked: boolean; twoFactorEnabled: boolean;
   failedLoginAttempts: number; lastLoginAt?: string;
   createdAt: string; updatedAt?: string;
+  isEmailVerified?: boolean;
   tenantId?: number; tenantName?: string;
   departmentId?: number; departmentName?: string;
   designationId?: number; designationName?: string;
@@ -1135,13 +1281,24 @@ Main Group:
 
 | File | Purpose |
 |------|---------|
+| `Central_auth_api/Controllers/AuthController.cs` | Login (rate-limited), logout (JWT blacklist), introspect, check-permission, forgot-password, reset-password, send-email-verification, verify-email, send-verification-link, verify-email-link (magic link), reset-password-link |
 | `Central_auth_api/Controllers/UsersController.cs` | User CRUD, role/module/route assignment endpoints, profile endpoint, photo upload, password validation |
 | `Central_auth_api/Controllers/RolesController.cs` | Role CRUD with permission sync |
 | `Central_auth_api/Controllers/ModulesController.cs` | Module CRUD, accessible endpoint, nested route CRUD, auto-generate 7 default permissions on create |
-| `Central_auth_api/Controllers/AuthController.cs` | Login (rate-limited), logout (JWT blacklist), introspect, check-permission |
 | `Central_auth_api/Filters/DynamicPermissionMiddleware.cs` | Global route-permission enforcement + direct grant bypass |
-| `Central_auth_api/Data/CentralAuthDbContext.cs` | DbContext with 25 DbSets and auto-audit |
+| `Central_auth_api/Middleware/SessionActivityMiddleware.cs` | Sliding session expiration (extends ExpiresAtUtc, 30s throttle) |
+| `Central_auth_api/Middleware/TokenCleanupService.cs` | Background service: clean expired tokens every 24h |
+| `Central_auth_api/Data/CentralAuthDbContext.cs` | DbContext with 26 DbSets and auto-audit |
+| `Central_auth_api/Models/EmailVerificationToken.cs` | Magic link token entity (UserId, Token, Purpose, ExpiresAt, IsUsed) |
+| `Central_auth_api/Services/EmailService.cs` | MailKit SMTP (SecureSocketOptions.Auto), null-safe config |
+| `Central_auth_api/Services/OtpService.cs` | OTP generate/verify, BCrypt WF6, 60s rate limit, max 3 failed attempts |
+| `Central_auth_api/Services/TokenService.cs` | Magic link token generate (URL-safe base64), validate, cleanup |
+| `Central_auth_api/Services/EmailTemplates.cs` | Static HTML templates: hybrid verification email, hybrid password reset email |
+| `Central_auth_api/DTOs/AuthDtos.cs` | LoginRequest, LoginResponse, ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest, SendVerificationLinkRequest, ResetPasswordLinkRequest |
 | `Central_auth_api/DTOs/UserProfileDtos.cs` | UserProfileDto, RoleSummary, PermissionSummary, SessionSummary, AuditSummary |
+| `Central_auth/src/pages/Login.tsx` | Email/password → JWT → localStorage, redirect unverified to /verify-email |
+| `Central_auth/src/pages/ForgotPassword.tsx` | 2-step: email → OTP, or magic link token → new password form |
+| `Central_auth/src/pages/VerifyEmail.tsx` | Auto-sends OTP on mount, handles ?token= magic link, OTP fallback |
 | `Central_auth/src/pages/Roles.tsx` | Module→route permission tree (modal + read-only) |
 | `Central_auth/src/pages/UserAccess.tsx` | 3-section hub — unified Save All, no scroll containers, single Save button at bottom |
 | `Central_auth/src/pages/Modules.tsx` | Module CRUD, route management, inline form validation (formTouched states) |
