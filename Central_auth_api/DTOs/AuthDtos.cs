@@ -20,7 +20,7 @@ public record AuthUserDto(
 
 public record RefreshRequest(string RefreshToken);
 
-public record ForgotPasswordRequest(string Email);
+public record ForgotPasswordRequest(string Email, string? Method = null);
 public record ResetPasswordRequest(string Email, string Otp, string NewPassword);
 public record SendVerificationRequest(string Email);
 public record SendVerificationLinkRequest(string Email);

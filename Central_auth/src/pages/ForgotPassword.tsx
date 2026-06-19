@@ -1,11 +1,12 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { KeyRound, Eye, EyeOff, Loader2, Mail, ArrowLeft, CheckCircle } from "lucide-react";
 import { api } from "../lib/api";
 
 export default function ForgotPassword() {
-  const [step, setStep] = useState<"email" | "otp">("email");
+  const [searchParams] = useSearchParams();
+  const [step, setStep] = useState<"email" | "otp" | "magiclink">("email");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [resetToken, setResetToken] = useState("");
@@ -17,6 +18,17 @@ export default function ForgotPassword() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    const token = searchParams.get("token");
+    const emailParam = searchParams.get("email");
+    if (token) {
+      setResetToken(token);
+      if (emailParam) setEmail(emailParam);
+      setVerified(true);
+      setStep("otp");
+    }
+  }, [searchParams]);
 
   const validatePassword = useCallback((p: string): string | null => {
     if (p.length < 8) return "Password must be at least 8 characters.";
@@ -30,12 +42,11 @@ export default function ForgotPassword() {
     return null;
   }, []);
 
-  async function handleSendOtp(e: FormEvent) {
-    e.preventDefault();
+  async function handleSendOtp() {
     setError(null);
     setLoading(true);
     try {
-      await api.auth.forgotPassword({ email });
+      await api.auth.forgotPassword({ email, method: "otp" });
       setStep("otp");
       setCooldown(60);
     } catch (err: unknown) {
@@ -79,11 +90,26 @@ export default function ForgotPassword() {
     }
   }
 
+  async function handleSendMagicLink() {
+    if (!email) return;
+    setError(null);
+    setLoading(true);
+    try {
+      await api.auth.forgotPassword({ email, method: "magic-link" });
+      setStep("magiclink");
+      setCooldown(60);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to send reset link.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleResend() {
     setError(null);
     setLoading(true);
     try {
-      await api.auth.forgotPassword({ email });
+      await api.auth.forgotPassword({ email, method: "otp" });
       setCooldown(60);
     } catch { /* silent */ }
     finally { setLoading(false); }
@@ -131,11 +157,11 @@ export default function ForgotPassword() {
           {step === "email" && (
             <>
               <h2 className="text-base font-semibold text-foreground mb-1">Reset password</h2>
-              <p className="text-sm text-muted-foreground mb-5">Enter your email and we'll send you a reset code.</p>
+              <p className="text-sm text-muted-foreground mb-5">Choose how to reset your password.</p>
 
               {error && <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-600">{error}</div>}
 
-              <form onSubmit={handleSendOtp} className="space-y-4">
+              <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
                   <div className="relative">
@@ -147,12 +173,17 @@ export default function ForgotPassword() {
                     />
                   </div>
                 </div>
-                <button type="submit" disabled={loading}
+                <button type="button" disabled={loading} onClick={handleSendOtp}
                   className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
                   {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                   {loading ? "Sending…" : "Send reset code"}
                 </button>
-              </form>
+                <button type="button" disabled={loading} onClick={handleSendMagicLink}
+                  className="w-full py-2.5 rounded-lg border border-primary text-primary text-sm font-medium hover:bg-primary/5 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {loading ? "Sending…" : "Send reset link"}
+                </button>
+              </div>
             </>
           )}
 
@@ -230,6 +261,38 @@ export default function ForgotPassword() {
                   {loading ? "Resetting…" : "Reset password"}
                 </button>
               </form>
+            </>
+          )}
+
+          {step === "magiclink" && (
+            <>
+              <h2 className="text-base font-semibold text-foreground mb-1">Check your email</h2>
+              <p className="text-sm text-muted-foreground mb-5">
+                We sent a reset link to <strong>{email}</strong>. Click the button in the email to reset your password.
+              </p>
+
+              {error && <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-600">{error}</div>}
+
+              <div className="flex flex-col items-center py-4">
+                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                  <Mail className="w-7 h-7 text-primary" />
+                </div>
+                <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                  The link expires in <strong className="text-foreground">24 hours</strong>.<br />
+                  Didn't receive it? Check your spam folder.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <button type="button" disabled={cooldown > 0 || loading} onClick={handleSendMagicLink}
+                  className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend reset link"}
+                </button>
+                <Link to="/login" className="w-full py-2 rounded-lg border text-sm text-muted-foreground hover:text-foreground transition-colors inline-block text-center">
+                  Back to sign in
+                </Link>
+              </div>
             </>
           )}
         </div>

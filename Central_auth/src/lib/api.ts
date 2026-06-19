@@ -45,7 +45,7 @@ export const api = {
   auth: {
     login: (data: { email: string; password: string }) =>
       req<{ accessToken: string; expiresAt: string; user: { id: number; fullName: string; email: string; tenantName?: string; roles: string[]; profilePhotoStorageKey?: string | null; emailVerified?: boolean } }>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
-    forgotPassword: (data: { email: string }) =>
+    forgotPassword: (data: { email: string; method?: string }) =>
       req<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify(data) }),
     resetPassword: (data: { email: string; otp: string; newPassword: string }) =>
       req<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify(data) }),

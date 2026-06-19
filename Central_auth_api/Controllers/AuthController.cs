@@ -564,15 +564,29 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
             try
             {
-                var otp = await otpService.GenerateAndStoreAsync(user.Id, "PasswordReset", user.Email, ip);
-                var html = EmailTemplates.GetPasswordResetEmail(user.FirstName, otp);
+                var isMagicLink = string.Equals(req.Method, "magic-link", StringComparison.OrdinalIgnoreCase);
+                var frontendUrl = cfg["Frontend:BaseUrl"] ?? "http://localhost:5173";
+                string html;
+
+                if (isMagicLink)
+                {
+                    var token = await tokenService.GenerateTokenAsync(user.Id, "PasswordReset", TimeSpan.FromHours(24), ip);
+                    var resetLink = $"{frontendUrl}/forgot-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
+                    html = EmailTemplates.GetMagicLinkEmail(user.FirstName, resetLink);
+                }
+                else
+                {
+                    var otp = await otpService.GenerateAndStoreAsync(user.Id, "PasswordReset", user.Email, ip);
+                    html = EmailTemplates.GetOtpOnlyEmail(user.FirstName, otp);
+                }
+
                 await emailService.SendAsync(user.Email, "Reset your password", html);
 
                 db.AuditHistories.Add(new AuditHistory
                 {
                     ActionType = "ForgotPassword", EntityName = "AppUser", EntityKey = user.Id.ToString(),
                     AppUserId = user.Id, IpAddress = ip,
-                    NewValues = JsonSerializer.Serialize(new { email = user.Email, method = "requested" }),
+                    NewValues = JsonSerializer.Serialize(new { email = user.Email, method = isMagicLink ? "magic-link" : "otp" }),
                     CreatedAt = DateTime.UtcNow, IsActive = true
                 });
                 await db.SaveChangesAsync();
