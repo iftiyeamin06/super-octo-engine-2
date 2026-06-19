@@ -565,10 +565,7 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
             try
             {
                 var otp = await otpService.GenerateAndStoreAsync(user.Id, "PasswordReset", user.Email, ip);
-                var token = await tokenService.GenerateTokenAsync(user.Id, "PasswordReset", TimeSpan.FromHours(24), ip);
-                var frontendUrl = cfg["Frontend:BaseUrl"] ?? "http://localhost:5173";
-                var resetLink = $"{frontendUrl}/forgot-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(user.Email)}";
-                var html = EmailTemplates.GetPasswordResetEmail(user.FirstName, otp, resetLink);
+                var html = EmailTemplates.GetPasswordResetEmail(user.FirstName, otp);
                 await emailService.SendAsync(user.Email, "Reset your password", html);
 
                 db.AuditHistories.Add(new AuditHistory
@@ -587,6 +584,40 @@ public class AuthController(CentralAuthDbContext db, IConfiguration cfg, IOtpSer
         }
 
         return Ok(new { message = "If an account exists, a reset code has been sent." });
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
+    [HttpPost("verify-reset-otp")]
+    public async Task<IActionResult> VerifyResetOtp([FromBody] VerifyResetOtpRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Otp))
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        var normalized = req.Email.ToUpperInvariant();
+        var user = await db.AppUsers.FirstOrDefaultAsync(u => u.NormalizedEmail == normalized && u.IsActive);
+
+        if (user is null)
+            return BadRequest(new { message = "Invalid email or verification code." });
+
+        var verified = await otpService.VerifyAsync(user.Id, "PasswordReset", req.Otp);
+        if (!verified)
+        {
+            db.AuditHistories.Add(new AuditHistory
+            {
+                ActionType = "PasswordResetFailed", EntityName = "AppUser", EntityKey = user.Id.ToString(),
+                AppUserId = user.Id, IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                NewValues = JsonSerializer.Serialize(new { method = "otp", reason = "invalid_otp" }),
+                CreatedAt = DateTime.UtcNow, IsActive = true
+            });
+            await db.SaveChangesAsync();
+            return BadRequest(new { message = "Invalid email or verification code." });
+        }
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var resetToken = await tokenService.GenerateTokenAsync(user.Id, "PasswordReset", TimeSpan.FromMinutes(10), ip);
+
+        return Ok(new VerifyResetOtpResponse(resetToken));
     }
 
     [AllowAnonymous]

@@ -27,3 +27,5 @@ public record SendVerificationLinkRequest(string Email);
 public record VerifyEmailRequest(string Email, string Otp);
 public record VerifyEmailLinkRequest(string Token);
 public record ResetPasswordLinkRequest(string Token, string NewPassword);
+public record VerifyResetOtpRequest(string Email, string Otp);
+public record VerifyResetOtpResponse(string ResetToken);

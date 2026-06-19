@@ -75,7 +75,7 @@ If you didn't request this, you can safely ignore this email.
 </html>";
     }
 
-    public static string GetPasswordResetEmail(string firstName, string otp, string resetLink)
+    public static string GetPasswordResetEmail(string firstName, string otp)
     {
         return $@"<!DOCTYPE html>
 <html lang=""en"">
@@ -103,24 +103,8 @@ If you didn't request this, you can safely ignore this email.
 <tr><td style=""background-color:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px 24px;"">
 
 <h1 style=""margin:0 0 8px;color:#18181b;font-size:20px;font-weight:600;text-align:center;"">Reset your password</h1>
-<p style=""margin:0 0 24px;color:#71717a;font-size:14px;text-align:center;"">Hi {System.Net.WebUtility.HtmlEncode(firstName)}, we received a request to reset your password.</p>
+<p style=""margin:0 0 24px;color:#71717a;font-size:14px;text-align:center;"">Hi {System.Net.WebUtility.HtmlEncode(firstName)}, enter this code to reset your password.</p>
 
-<!-- Reset Button -->
-<table width=""100%"" cellpadding=""0"" cellspacing=""0""><tr><td align=""center"" style=""padding-bottom:24px;"">
-<table cellpadding=""0"" cellspacing=""0""><tr>
-<td style=""background-color:#4F46E5;border-radius:8px;"">
-<a href=""{resetLink}"" style=""display:inline-block;padding:12px 32px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;"">Reset Password</a>
-</td>
-</tr></table>
-</td></tr></table>
-
-<!-- Divider -->
-<table width=""100%"" cellpadding=""0"" cellspacing=""0""><tr>
-<td style=""border-top:1px solid #e4e4e7;padding:0;""></td>
-</tr></table>
-
-<!-- OTP Section -->
-<p style=""margin:24px 0 12px;color:#18181b;font-size:14px;font-weight:600;text-align:center;"">Or enter this code manually</p>
 <table width=""100%"" cellpadding=""0"" cellspacing=""0""><tr><td align=""center"" style=""padding-bottom:20px;"">
 <table cellpadding=""0"" cellspacing=""0""><tr>
 <td style=""background-color:#f4f4f5;border:1px solid #e4e4e7;border-radius:8px;padding:10px 24px;"">
@@ -136,7 +120,6 @@ If you didn't request this, you can safely ignore this email.
 <!-- Footer -->
 <tr><td style=""padding:24px 0 0;"">
 <p style=""margin:0;color:#a1a1aa;font-size:12px;text-align:center;line-height:1.6;"">
-This link expires in <strong style=""color:#71717a;"">24 hours</strong>.<br>
 If you didn't request this, you can safely ignore this email. Your password will not be changed.
 </p>
 </td></tr>

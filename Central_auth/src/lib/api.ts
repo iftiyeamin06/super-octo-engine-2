@@ -51,6 +51,8 @@ export const api = {
       req<{ message: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify(data) }),
     resetPasswordLink: (data: { token: string; newPassword: string }) =>
       req<{ message: string }>("/auth/reset-password-link", { method: "POST", body: JSON.stringify(data) }),
+    verifyResetOtp: (data: { email: string; otp: string }) =>
+      req<{ resetToken: string }>("/auth/verify-reset-otp", { method: "POST", body: JSON.stringify(data) }),
     sendVerification: (data: { email: string }) =>
       req<{ message: string }>("/auth/send-email-verification", { method: "POST", body: JSON.stringify(data) }),
     verifyEmail: (data: { email: string; otp: string }) =>

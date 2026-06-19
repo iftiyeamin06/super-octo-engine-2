@@ -1,18 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import type { FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { KeyRound, Eye, EyeOff, Loader2, Mail, ArrowLeft, CheckCircle, AlertTriangle } from "lucide-react";
+import { Link } from "react-router-dom";
+import { KeyRound, Eye, EyeOff, Loader2, Mail, ArrowLeft, CheckCircle } from "lucide-react";
 import { api } from "../lib/api";
 
 export default function ForgotPassword() {
-  const [searchParams] = useSearchParams();
-
-  const tokenParam = searchParams.get("token");
-  const emailParam = searchParams.get("email");
-
-  const [step, setStep] = useState<"email" | "reset" | "link-reset">("email");
+  const [step, setStep] = useState<"email" | "otp">("email");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [verified, setVerified] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
@@ -20,23 +17,6 @@ export default function ForgotPassword() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  const [linkError, setLinkError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (emailParam) setEmail(emailParam);
-    if (tokenParam) {
-      setStep("link-reset");
-    } else if (emailParam) {
-      setStep("reset");
-      setCooldown(60);
-    }
-  }, [tokenParam, emailParam]);
-
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [cooldown]);
 
   const validatePassword = useCallback((p: string): string | null => {
     if (p.length < 8) return "Password must be at least 8 characters.";
@@ -56,7 +36,7 @@ export default function ForgotPassword() {
     setLoading(true);
     try {
       await api.auth.forgotPassword({ email });
-      setStep("reset");
+      setStep("otp");
       setCooldown(60);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to send code.");
@@ -65,16 +45,32 @@ export default function ForgotPassword() {
     }
   }
 
-  async function handleReset(e: FormEvent) {
+  async function handleVerifyOtp(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (otp.length !== 6) { setError("Enter the 6-digit code."); return; }
+    setLoading(true);
+    try {
+      const res = await api.auth.verifyResetOtp({ email, otp });
+      setResetToken(res.resetToken);
+      setVerified(true);
+      setOtp("");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Invalid or expired code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleReset(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
     const pwdErr = validatePassword(newPassword);
     if (pwdErr) { setError(pwdErr); return; }
     if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
     setLoading(true);
     try {
-      await api.auth.resetPassword({ email, otp, newPassword });
+      await api.auth.resetPasswordLink({ token: resetToken, newPassword });
       setSuccess(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to reset password.");
@@ -83,21 +79,14 @@ export default function ForgotPassword() {
     }
   }
 
-  async function handleLinkReset(e: FormEvent) {
-    e.preventDefault();
+  async function handleResend() {
     setError(null);
-    const pwdErr = validatePassword(newPassword);
-    if (pwdErr) { setError(pwdErr); return; }
-    if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
     setLoading(true);
     try {
-      await api.auth.resetPasswordLink({ token: tokenParam!, newPassword });
-      setSuccess(true);
-    } catch (err: unknown) {
-      setLinkError("This reset link is invalid or has expired. Please request a new one.");
-    } finally {
-      setLoading(false);
-    }
+      await api.auth.forgotPassword({ email });
+      setCooldown(60);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
   }
 
   if (success) {
@@ -139,54 +128,7 @@ export default function ForgotPassword() {
             <ArrowLeft className="w-4 h-4" /> Back to sign in
           </Link>
 
-          {step === "link-reset" ? (
-            <>
-              <h2 className="text-base font-semibold text-foreground mb-1">Set new password</h2>
-              <p className="text-sm text-muted-foreground mb-5">Enter your new password below.</p>
-
-              {linkError && (
-                <div className="mb-4 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-600 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span>{linkError}</span>
-                </div>
-              )}
-
-              {error && <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-600">{error}</div>}
-
-              <form onSubmit={handleLinkReset} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">New password</label>
-                  <div className="relative">
-                    <input
-                      type={showPwd ? "text" : "password"} required value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full px-3 py-2 pr-10 rounded-lg border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
-                    />
-                    <button type="button" onClick={() => setShowPwd(!showPwd)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                      {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">8+ chars, 3 of 4: uppercase, lowercase, digit, special</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Confirm password</label>
-                  <input
-                    type={showPwd ? "text" : "password"} required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2 rounded-lg border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
-                  />
-                </div>
-
-                <button type="submit" disabled={loading}
-                  className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
-                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {loading ? "Resetting…" : "Reset password"}
-                </button>
-              </form>
-            </>
-          ) : step === "email" ? (
+          {step === "email" && (
             <>
               <h2 className="text-base font-semibold text-foreground mb-1">Reset password</h2>
               <p className="text-sm text-muted-foreground mb-5">Enter your email and we'll send you a reset code.</p>
@@ -212,14 +154,16 @@ export default function ForgotPassword() {
                 </button>
               </form>
             </>
-          ) : (
+          )}
+
+          {step === "otp" && !verified && (
             <>
               <h2 className="text-base font-semibold text-foreground mb-1">Enter reset code</h2>
               <p className="text-sm text-muted-foreground mb-5">We sent a 6-digit code to <strong>{email}</strong>.</p>
 
               {error && <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-600">{error}</div>}
 
-              <form onSubmit={handleReset} className="space-y-4">
+              <form onSubmit={handleVerifyOtp} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Verification code</label>
                   <input
@@ -229,6 +173,32 @@ export default function ForgotPassword() {
                   />
                 </div>
 
+                <button type="submit" disabled={loading}
+                  className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {loading ? "Verifying…" : "Verify code"}
+                </button>
+
+                <button type="button" disabled={cooldown > 0 || loading} onClick={handleResend}
+                  className="w-full py-2 rounded-lg border text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
+                </button>
+              </form>
+            </>
+          )}
+
+          {step === "otp" && verified && (
+            <>
+              <h2 className="text-base font-semibold text-foreground mb-1">Set new password</h2>
+
+              <div className="mb-5 px-3 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-600 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>Code verified</span>
+              </div>
+
+              {error && <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-600">{error}</div>}
+
+              <form onSubmit={handleReset} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">New password</label>
                   <div className="relative">
@@ -258,11 +228,6 @@ export default function ForgotPassword() {
                   className="w-full py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
                   {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                   {loading ? "Resetting…" : "Reset password"}
-                </button>
-
-                <button type="button" disabled={cooldown > 0} onClick={async () => { setError(null); setLoading(true); try { await api.auth.forgotPassword({ email }); setCooldown(60); } catch { /* silent */ } finally { setLoading(false); } }}
-                  className="w-full py-2 rounded-lg border text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-                  {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
                 </button>
               </form>
             </>
