@@ -4,6 +4,12 @@ import { Link, useSearchParams } from "react-router-dom";
 import { KeyRound, Eye, EyeOff, Loader2, Mail, ArrowLeft, CheckCircle } from "lucide-react";
 import { api } from "../lib/api";
 
+function maskEmail(email: string): string {
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 4) return email;
+  return email.slice(0, 4) + "******" + email.slice(atIndex);
+}
+
 export default function ForgotPassword() {
   const [searchParams] = useSearchParams();
   const [step, setStep] = useState<"email" | "otp" | "magiclink">("email");
@@ -268,7 +274,7 @@ export default function ForgotPassword() {
             <>
               <h2 className="text-base font-semibold text-foreground mb-1">Check your email</h2>
               <p className="text-sm text-muted-foreground mb-5">
-                We sent a reset link to <strong>{email}</strong>. Click the button in the email to reset your password.
+                We sent a reset link to <strong>{maskEmail(email)}</strong>. Click the button in the email to reset your password.
               </p>
 
               {error && <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-600">{error}</div>}
